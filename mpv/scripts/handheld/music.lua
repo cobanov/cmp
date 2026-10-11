@@ -866,8 +866,7 @@ function M.app()
             if i == lib_sel then ui.rect(c, tx - 16, y, ui.W - tx - 8, THUMB + 8, 20, ui.RAISED) end
             picture(c, i - lib_top + 1, a, 44, y + 4, THUMB, 14)
             local room = ui.W - tx - 110  -- the track count sits at the right
-            if i == lib_sel then scroll.line(c, tx, y + 14, room, title, T_ROW, playing and ui.ACCENT or ui.WHITE, 7, true)
-            else ui.text(c, tx, y + 14, ui.fit_text(title, room, T_ROW, true), T_ROW, playing and ui.ACCENT or ui.WHITE, 7, true) end
+            ui.text(c, tx, y + 14, ui.fit_text(title, room, T_ROW, true), T_ROW, playing and ui.ACCENT or ui.WHITE, 7, true)
             ui.text(c, tx, y + 60, ui.fit_text(artist, room, T_SUB), T_SUB, ui.GREY, 7)
             ui.text(c, ui.W - 44, y + 4 + THUMB / 2, playing and "♪" or tostring(#a.tracks), T_ASIDE,
                 playing and ui.ACCENT or ui.DIM, 6)
@@ -899,9 +898,7 @@ function M.app()
         local title, artist = M.names(a)
         local playing = a.dir == playing_dir()
         -- under the strip (44 + 400 + reflection): the title, then artist and track count on one line
-        if ui.width(title, T_TITLE, true) <= ui.W - 120 then
-            ui.text(c, ui.W / 2, 582, title, T_TITLE, playing and ui.ACCENT or ui.WHITE, 8, true)
-        else scroll.line(c, 60, 582, ui.W - 120, title, T_TITLE, playing and ui.ACCENT or ui.WHITE, 7, true) end
+        ui.text(c, ui.W / 2, 582, ui.fit_text(title, ui.W - 120, T_TITLE, true), T_TITLE, playing and ui.ACCENT or ui.WHITE, 8, true)
         local more = playing and "♪ Playing" or (#a.tracks .. " tracks")
         ui.text(c, ui.W / 2, 640, ui.fit_text(artist, ui.W - 360, T_SUB) .. "  ·  " .. more, T_SUB,
             playing and ui.ACCENT or ui.GREY, 8)
@@ -935,9 +932,8 @@ function M.app()
             ui.text(c, x + 8, mid, is_playing and "♪" or string.format("%d", i), 28,
                 is_playing and ui.ACCENT or ui.DIM, 4)
             local name = M.track_name(album.tracks[i], album)
-            if i == tr_sel then scroll.line(c, x + 60, mid, right - x - 76, name, T_TRACK, is_playing and ui.ACCENT or ui.WHITE, 4)
-            else ui.text(c, x + 60, mid, ui.fit_text(name, right - x - 76, T_TRACK), T_TRACK,
-                is_playing and ui.ACCENT or ui.WHITE, 4) end
+            ui.text(c, x + 60, mid, ui.fit_text(name, right - x - 76, T_TRACK), T_TRACK,
+                is_playing and ui.ACCENT or ui.WHITE, 4)
         end
         footer(c, { { "A", "Play" }, { "B", "Back" }, { "X", "Now playing" }, { "Select", "Settings" } })
     end
@@ -1045,8 +1041,7 @@ function M.app()
             ui.text(c, x + 6, mid, now and "♪" or tostring(i + 1), T_HINT, now and ui.ACCENT or ui.DIM, 4)
             local path = list[i + 1].filename
             local name = M.track_name(path, full_album(path))
-            if zone == "queue" and i == queue_sel then scroll.line(c, x + 54, mid, width - 70, name, T_SUB, now and ui.ACCENT or ui.WHITE, 4)
-            else ui.text(c, x + 54, mid, ui.fit_text(name, width - 70, T_SUB), T_SUB, now and ui.ACCENT or ui.WHITE, 4) end
+            ui.text(c, x + 54, mid, ui.fit_text(name, width - 70, T_SUB), T_SUB, now and ui.ACCENT or ui.WHITE, 4)
         end
         local hints = { { "↑↓", "Move" } }
         if zone == "controls" then hints[#hints + 1] = { "←→", "Controls" }

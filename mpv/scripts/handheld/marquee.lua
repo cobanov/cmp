@@ -1,9 +1,7 @@
--- Long names scroll instead of being cut short: the title in the player and
--- the line under the cursor in a list, where the eye is. Other lines keep
--- their "…". A line scrolls twice when it appears (a new track, the cursor
--- moved onto it) and then rests with its "…": every step redraws the whole
--- screen in software (about 40% of a core on an H700 at 20 steps a second),
--- which is too much for the battery to keep up for good.
+-- A long title in the player scrolls once when the track starts, then rests
+-- with its "…" (lists keep their "…" from the start). Only once, and only
+-- there: every step redraws the whole screen in software, about 40% of an
+-- H700 core while it moves, which the battery should not pay for long.
 --
 -- In a page's draw: K.begin(), then K.line(...) for each line that may
 -- scroll (it draws the ones that fit into the page's canvas), then
@@ -17,8 +15,8 @@ local K = {}
 local overlay = mp.create_osd_overlay("ass-events")
 overlay.z = 10  -- over the page
 
-local SPEED, PAUSE, GAP, FPS = 80, 1.5, 96, 15  -- units/s; s still at the start; units before it comes round again
-local PASSES = 2
+local SPEED, PAUSE, GAP, FPS = 80, 1.5, 96, 12  -- units/s; s still at the start; units before it comes round again
+local PASSES = 1
 
 local lines, key, start, timer, last = {}, nil, 0, nil, nil
 

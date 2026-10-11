@@ -11,7 +11,7 @@ All notable changes to CMP. The format follows [Keep a Changelog](https://keepac
 - **Equalizer:** 10 bands with presets (Bass boost, Treble boost, Vocal, Rock, Pop, Jazz, Classical, Dance) and a curve of your own, edited live with the pad (Settings > Edit equalizer) without the music skipping.
 - **Audio details** under the progress bar: format, sample rate, channels and bitrate.
 - **Crossfade** (Settings: 2 to 10 seconds): the end of a track and the start of the next play together, one fading out as the other fades in, with no gap and nothing heard twice. Seeking into the fade or skipping plays the next track from its start.
-- **Long names scroll** in the player and on the line under the cursor, twice, then rest with their "…".
+- **A long title scrolls** in the player, once when the track starts, then rests with its "…" (scrolling redraws the whole screen in software, so it is kept short for the battery).
 - **Headphones out, music paused:** pulling the headphones out pauses the player (also the background player on dual-screen devices) instead of carrying on from the speaker.
 - **Jump by letter** in a long library: ↑↓ in Cover Flow, ←→ in the album list. The letter shows big for a moment. Holding a direction also speeds up after a second.
 - **Track names from the tags** on the album page, in the queue and in the touch library. Until an album's tags are read (once, in the background, then kept) the file names show.
