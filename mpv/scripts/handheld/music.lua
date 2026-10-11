@@ -984,6 +984,7 @@ function M.app()
 
     -- the "playing" marks follow the current track
     mp.observe_property("path", "string", function() queue_sel = nil; draw() end)
+    mp.observe_property("pause", "bool", function() draw() end)  -- (paused from outside too: headphones out)
     -- the player's progress, and the clock everywhere (on the minute)
     local minute = os.date("%M")
     mp.add_periodic_timer(1, function()

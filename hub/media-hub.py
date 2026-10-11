@@ -427,6 +427,45 @@ class Guard:
         self.fds = {}
 
 
+SW_HEADPHONE_INSERT = 2
+
+
+class HeadphoneJack:
+    """Notices headphones being pulled out, so the player can pause rather
+    than carry on from the speaker."""
+
+    def __init__(self):
+        self.fds = []
+        for d in input_devices():
+            if d.get("SW", 0) >> SW_HEADPHONE_INSERT & 1:
+                try:
+                    self.fds.append(os.open(d["event"], os.O_RDONLY | os.O_NONBLOCK))
+                except OSError:
+                    pass
+
+    def unplugged(self, fd):
+        """True when what came in on fd says the headphones came out."""
+        try:
+            data = os.read(fd, EVENT.size * 16)
+        except BlockingIOError:
+            return False
+        except OSError:
+            os.close(fd)
+            self.fds.remove(fd)
+            return False
+        out = False
+        for i in range(0, len(data) - EVENT.size + 1, EVENT.size):
+            _, _, etype, code, value = EVENT.unpack_from(data, i)
+            if etype == EV_SW and code == SW_HEADPHONE_INSERT:
+                out = value == 0
+        return out
+
+    def close(self):
+        for fd in self.fds:
+            os.close(fd)
+        self.fds = []
+
+
 # --- mpv IPC --------------------------------------------------------------
 
 class Mpv:
@@ -795,6 +834,8 @@ def run_player(main_sock=MAIN_SOCK):
     if guard:
         guard.tell = lambda on: main.send(["script-message", "handheld-screen", "on" if on else "off"])
 
+    jack = HeadphoneJack()
+
     def locked():
         return guard is not None and guard.locked
 
@@ -846,7 +887,7 @@ def run_player(main_sock=MAIN_SOCK):
                 remote.connect()
 
             fds = [f for f in (pad.fd, main.sock, remote.sock, events, touch and touch.fd) if f is not None]
-            fds += list(guard.fds) if guard else []
+            fds += (list(guard.fds) if guard else []) + jack.fds
             waits = [t for t in (pad.timeout(), guard and guard.timeout()) if t is not None]
             if locked() and "y" in pad.down:
                 waits.append(max(0.0, pad.down["y"] + UNLOCK_HOLD - time.monotonic()))
@@ -859,6 +900,9 @@ def run_player(main_sock=MAIN_SOCK):
             for f in ready:
                 if f == pad.fd:
                     pad.read()
+                elif f in jack.fds:
+                    if jack.unplugged(f):
+                        main.send(["set_property", "pause", True])  # headphones out: not on the speaker
                 elif guard and f in guard.fds:
                     was = guard.locked
                     guard.read(f)
@@ -952,6 +996,7 @@ def run_player(main_sock=MAIN_SOCK):
     finally:
         if guard:
             guard.close()
+        jack.close()
         pad.close()
         if touch:
             touch.close()
@@ -975,6 +1020,7 @@ def run_bottom(path, extra=()):
             "--title=Bottom", f"--wayland-app-id={BOTTOM_ID}", f"--fs-screen-name={second}",
             f"--input-ipc-server={BOTTOM_SOCK}", f"--script-opts=handheld-role=bottom,{HUB_OPT}", *extra, path],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    jack = HeadphoneJack()
     mapped = False
     drastic = False  # DraStic started: it owns the second screen now
     next_check = 0
@@ -984,7 +1030,10 @@ def run_bottom(path, extra=()):
             if mapped and not mpv.sock:
                 mpv.connect()
             wait = 1.0 if park_at is None else min(1.0, max(0.0, park_at - time.monotonic()))
-            ready, _, _ = select.select([f for f in (events, mpv.sock) if f], [], [], wait)
+            ready, _, _ = select.select([f for f in (events, mpv.sock) if f] + jack.fds, [], [], wait)
+            for f in ready:
+                if f in jack.fds and jack.unplugged(f):
+                    mpv.send(["set_property", "pause", True])  # headphones out: not on the speaker
             if mpv.sock in ready:
                 for ev in mpv.read() or []:
                     if ev.get("event") == "property-change" and ev.get("id") == 2 and ev.get("data"):
@@ -1037,6 +1086,7 @@ def run_bottom(path, extra=()):
         except subprocess.TimeoutExpired:
             proc.terminate()
     finally:
+        jack.close()
         if proc.poll() is None:
             proc.kill()
         if sway.has_app(LOWERDECK):  # a game is still running: give its panel back
