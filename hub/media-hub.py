@@ -56,10 +56,16 @@ MUSIC_QUEUE = "/storage/.config/mpv/handheld-music.m3u"
 HERE = os.path.dirname(os.path.abspath(__file__))
 # mpv loads the scripts of its own config dir by itself (naming them again
 # would load them twice); installed anywhere else they are passed by path
+# (and --load-scripts=no keeps a full install's copy there from loading too)
 SCRIPTS = [] if HERE == os.path.join(os.environ["HOME"], ".config/mpv") else \
-    [f"--script={os.path.join(HERE, 'scripts', 'handheld')}"]
+    ["--load-scripts=no", f"--script={os.path.join(HERE, 'scripts', 'handheld')}"]
 HUB_OPT = f"handheld-hub={os.path.abspath(__file__)}"
-SECOND_SCREEN_MPV = ["mpv", "--fs", "--no-osc", "--no-input-default-bindings"] + SCRIPTS
+# vo=wlshm: the second-screen windows draw in software, which works on every
+# ROCKNIX device (the RK3566's Vulkan output shows no picture)
+SECOND_SCREEN_MPV = ["mpv", "--fs", "--no-osc", "--no-input-default-bindings", "--vo=wlshm"] + SCRIPTS
+# where a player about to start leaves a note, so the bottom player handing
+# over to it keeps the second screen on (see player_follows)
+FOLLOWS = "/run/handheld-follows"
 
 
 def screens():
@@ -72,6 +78,8 @@ def screens():
                 capture_output=True, text=True, timeout=10).stdout.strip()
         except (OSError, subprocess.SubprocessError):
             prio = ""
+    if prio:
+        os.environ["SDL_VIDEO_DISPLAY_PRIORITY"] = prio  # for the mpvs started from here
     names = [n for n in prio.split(",") if n]
     return (names[0], names[1]) if len(names) >= 2 else (None, None)
 
@@ -278,7 +286,7 @@ class Mpv:
         out = []
         for line in lines:
             try:
-                out.append(json.loads(line))
+                out.append(json.loads(line.decode("utf-8", errors="replace")))
             except ValueError:
                 pass
         return out
@@ -401,7 +409,10 @@ class TouchWatch:
     def touched(self):
         try:
             data = os.read(self.fd, EVENT.size * 64)
+        except BlockingIOError:
+            return False
         except OSError:
+            self.close()  # the device went away
             return False
         for i in range(0, len(data) - EVENT.size + 1, EVENT.size):
             _, _, etype, code, value = EVENT.unpack_from(data, i)
@@ -536,8 +547,8 @@ def on_term(*_):
 def window_event(sway, sock):
     try:
         kind, ev = sway.read(sock)
-    except (OSError, ValueError):
-        return None, None
+    except ValueError:
+        return None, None  # (OSError: sway went away; the caller starts over)
     if kind != Sway.WINDOW_EVENT:
         return None, None
     return ev.get("change"), (ev.get("container") or {}).get("app_id")
@@ -556,6 +567,7 @@ def run_player(main_sock=MAIN_SOCK):
     proc = None
     awake = False
     state = None
+    last_keep = None
     seen_main = False
 
     def start_remote():
@@ -567,11 +579,15 @@ def run_player(main_sock=MAIN_SOCK):
                 f"--input-ipc-server={REMOTE_SOCK}", f"--script-opts=handheld-role=remote,{HUB_OPT}"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+    touch = TouchWatch() if second else None
+    remote_started = 0.0
+
     # Both screens should come up together: the remote starts at once, beside
     # the player rather than after it, and powers the second screen on while
     # both are still loading (the one slow switch, about a second of sway).
     if second:
         start_remote()
+        remote_started = time.monotonic()
     if screen:
         screen.on()
 
@@ -579,7 +595,6 @@ def run_player(main_sock=MAIN_SOCK):
         main.send(["script-message", "handheld", key] + (["repeat"] if repeat else []))
 
     pad = Pad(send_key)
-    touch = TouchWatch() if second else None
     main.on_connect = lambda m: m.send(["observe_property", 1, "user-data/handheld/state"])
     remote.on_connect = lambda m: m.send(["observe_property", 2, "user-data/handheld/req"])
 
@@ -604,8 +619,9 @@ def run_player(main_sock=MAIN_SOCK):
             pad.open()
             if not main.sock and main.connect():
                 seen_main = True
-            if second and main.sock and proc is None:
-                start_remote()  # it crashed
+            if second and main.sock and proc is None and time.monotonic() - remote_started > 5:
+                start_remote()  # it crashed (at most every 5 s)
+                remote_started = time.monotonic()
             if proc and not remote.sock:
                 remote.connect()
 
@@ -613,6 +629,8 @@ def run_player(main_sock=MAIN_SOCK):
             waits = [t for t in (pad.timeout(),) if t is not None]
             if not main.sock or (proc and not remote.sock):
                 waits.append(0.1)  # still starting
+            if pad.fd is None or (second and main.sock and proc is None):
+                waits.append(1.0)  # look for the pad again; restart the remote
             ready, _, _ = select.select(fds, [], [], min(waits) if waits else None)
 
             for f in ready:
@@ -630,12 +648,20 @@ def run_player(main_sock=MAIN_SOCK):
                     evs = main.read()
                     if evs is None:
                         stop_remote()  # the video ended
+                        if main_sock != MAIN_SOCK:
+                            return  # the music player's own hub ends with it
                         continue
                     for ev in evs:
                         if ev.get("event") == "property-change" and ev.get("id") == 1:
                             state = ev.get("data")
-                            if awake and state:
+                            try:
+                                keep = json.loads(state).get("keep_on") if state else None
+                            except (ValueError, AttributeError):
+                                keep = None
+                            # asleep, the remote only needs to hear that "Stay on" changed
+                            if state and (awake or keep != last_keep):
                                 remote.send(["script-message", "handheld-state", state])
+                            last_keep = keep
                 elif f is remote.sock:
                     evs = remote.read() or []
                     for ev in evs:
@@ -699,6 +725,7 @@ def run_bottom(path, extra=()):
             f"--input-ipc-server={BOTTOM_SOCK}", f"--script-opts=handheld-role=bottom,{HUB_OPT}", *extra, path],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     mapped = False
+    drastic = False  # DraStic started: it owns the second screen now
     next_check = 0
     park_at = None  # when to park lowerdeck (see LOWERDECK_SETTLE)
     try:
@@ -731,6 +758,7 @@ def run_bottom(path, extra=()):
                     # a touch focused the video; give the game or the menu its focus back
                     sway.run(f"focus output {main_out}")
                 elif app == "drastic" and change == "new":
+                    drastic = True
                     mpv.send(["quit"])  # DS games need both screens
                 elif app == LOWERDECK and change == "new":
                     # ROCKNIX's RetroArch panel would cover the video; park it once it has laid itself out
@@ -743,7 +771,7 @@ def run_bottom(path, extra=()):
                 sway.run(f'[app_id="{LOWERDECK}"] move scratchpad')
                 sway.run(f'[app_id="{BOTTOM_ID}"] fullscreen enable')
             # games turn the second screen off when they exit; keep it on (dark if asleep)
-            if mapped and time.monotonic() >= next_check:
+            if mapped and time.monotonic() >= next_check and not (asleep and not screen.backlight):
                 next_check = time.monotonic() + 1
                 if sway.powered(second) is False:
                     screen.on()
@@ -763,7 +791,7 @@ def run_bottom(path, extra=()):
         if sway.has_app(LOWERDECK):  # a game is still running: give its panel back
             sway.run(f'[app_id="{LOWERDECK}"] scratchpad show')
             sway.run(f'[app_id="{LOWERDECK}"] move container to output {second}, fullscreen enable')
-        elif not player_follows():
+        elif not drastic and not player_follows():
             screen.off()
 
 
@@ -772,7 +800,13 @@ def player_follows(wait=4.0):
     player"): leave the screen on so it does not flash off and back on."""
     end = time.monotonic() + wait
     while time.monotonic() < end:
-        if unit_active("mpv"):
+        if os.path.exists(FOLLOWS):
+            try:
+                os.remove(FOLLOWS)
+            except OSError:
+                pass
+            return True
+        if unit_active("mpv") or unit_active("handheld-music"):
             return True
         time.sleep(0.2)
     return False
@@ -792,7 +826,9 @@ def main():
                     index = int(json.load(f).get("index", 1)) - 1
             except (OSError, ValueError, TypeError, AttributeError):
                 index = 0
-            run_bottom(MUSIC_QUEUE, ("--force-window=yes", "--audio-display=no", f"--playlist-start={index}",
+            # --idle: picking from its touch library replaces the queue, which
+            # would otherwise end the player for a moment and quit it
+            run_bottom(MUSIC_QUEUE, ("--idle=yes", "--force-window=yes", "--audio-display=no", f"--playlist-start={index}",
                                      "--save-position-on-quit=no", "--resume-playback=no",
                                      "--script-opts-append=handheld-kind=music"))
         else:
@@ -800,6 +836,8 @@ def main():
             while True:
                 try:
                     run_player(sock)
+                    if sock != MAIN_SOCK:
+                        break  # the music player ended: so does its hub
                 except OSError:
                     time.sleep(1)  # sway or a socket went away; start over
     except Stop:

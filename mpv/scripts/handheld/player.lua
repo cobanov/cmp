@@ -150,6 +150,7 @@ P.TABS = {
           off = function() return P.neighbour(1) == nil end,
           run = function() P.open_neighbour(1); return "close" end },
         { key = "move", label = on_bottom and "Play on top screen" or "Play on bottom screen", kind = "action", close = true,
+          hidden = function() return not (os.getenv("SDL_VIDEO_DISPLAY_PRIORITY") or ""):find(",") end,
           run = function() if on_bottom then P.to_top() else P.to_bottom() end; return "close" end },
         -- asks once, deletes on a second press within 3 s
         { key = "delete", label = "Delete this episode", kind = "action", danger = true,

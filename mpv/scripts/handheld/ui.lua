@@ -72,8 +72,10 @@ function ui.poly(c, color, alpha, ...)
         color, alpha or 0, table.concat(d, " "))
 end
 
+-- libass has no escape for a backslash: like mpv, follow it with a word
+-- joiner (U+2060) so "AC\DC" or "\N" in a name stay as written.
 local function esc(s)
-    return (tostring(s):gsub("\\", "\\\\"):gsub("{", "\\{"):gsub("}", "\\}"):gsub("\n", " "))
+    return (tostring(s):gsub("\\", "\\\226\129\160"):gsub("{", "\\{"):gsub("}", "\\}"):gsub("\n", " "))
 end
 ui.esc = esc
 

@@ -9,7 +9,7 @@ if [ "${1:-}" = "--music" ]; then
   base=/storage/.config/cmp
   ssh "$host" "mkdir -p $base/scripts /storage/.config/mpv /storage/.config/gmu/playlists /storage/roms/music /storage/.config/autostart
     rm -rf $base/scripts/handheld"
-  scp -O -q hub/media-hub.py system/second-screen-idle "$host":$base/
+  scp -O -q hub/media-hub.py system/second-screen-idle mpv/input.conf "$host":$base/
   scp -O -q -r mpv/scripts/handheld "$host":$base/scripts/
   scp -O -q es/Music.sh "$host":/storage/.config/gmu/playlists/Music.sh
   # dual-screen devices: keep the background player lit across sway reloads

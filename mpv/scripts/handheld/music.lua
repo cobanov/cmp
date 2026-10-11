@@ -45,6 +45,10 @@ local function save_settings()
     if f then f:write(utils.format_json(M.settings)); f:close() end
 end
 
+-- the state files live in mpv's config folder, which a music-only install
+-- may not have
+if not utils.file_info("/storage/.config/mpv") then os.execute("mkdir -p /storage/.config/mpv") end
+
 load_settings()
 
 M.shuffle, M.repeat_mode = false, 1
@@ -60,6 +64,14 @@ end
 -- "Artist/Album", "Artist/Album/CD1" (disc folders join their album), or a
 -- bare "Album" (named from its tags later). Tracks lying in the music folder
 -- itself make one album, "Singles".
+
+-- "2 x" before "10 x", "CD2" before "CD10", whatever the case.
+local function natural_less(a, b)
+    local function key(s)
+        return (s:lower():gsub("%d+", function(d) return string.format("%012d", tonumber(d)) end))
+    end
+    return key(a) < key(b)
+end
 
 local function is_disc(name)
     local n = name:lower()
@@ -109,7 +121,7 @@ function M.scan()
     end
     walk(ROOT, 0)
     for _, a in ipairs(albums) do
-        table.sort(a.tracks)  -- disc folders sort in their order, then the track numbers
+        table.sort(a.tracks, natural_less)  -- disc folders in their order, then the track numbers
         a.name = ((a.artist ~= "" and a.artist .. " - " or "") .. a.title):lower()
         -- pictures come from covers.lua, at the sizes each screen needs
     end
@@ -146,27 +158,31 @@ local function start_at(index)
     mp.set_property_number("playlist-pos", (index or 1) - 1)
 end
 
-function M.play_list(paths, index)
+-- The queue in its own order (an album's track order), kept so Shuffle Off
+-- can put it back even after a restart, which mpv's own unshuffle cannot.
+M.order = {}
+local pending  -- { path, pos }: where to resume, applied when that track loads
+
+local function load_queue(paths)
     mp.command("stop")
-    for _, p in ipairs(paths) do mp.commandv("loadfile", p, "append") end
-    mp.set_property_native("pause", false)
-    start_at(index)
+    pending = nil
+    M.order = {}
+    for i, p in ipairs(paths) do M.order[i] = p; mp.commandv("loadfile", p, "append") end
 end
 
-local function shuffled(list)
-    local out = {}
-    for i, v in ipairs(list) do out[i] = v end
-    for i = #out, 2, -1 do
-        local j = math.random(i)
-        out[i], out[j] = out[j], out[i]
-    end
-    return out
+function M.play_list(paths, index)
+    load_queue(paths)
+    mp.set_property_native("pause", false)
+    start_at(index)
 end
 
 function M.shuffle_play(tracks)
     if #tracks == 0 then return end
     M.shuffle = true
-    M.play_list(shuffled(tracks), 1)
+    load_queue(tracks)
+    mp.command("playlist-shuffle")  -- mpv's own random order, different every time
+    mp.set_property_native("pause", false)
+    start_at(1)
 end
 
 -- The albums, read once per player: the touch library of the background
@@ -177,9 +193,32 @@ function M.library()
     return library
 end
 
+-- Move the queue's entries, without stopping the track playing, into `want`.
+local function reorder(want)
+    local now = {}
+    for i, e in ipairs(mp.get_property_native("playlist") or {}) do now[i] = e.filename end
+    for i, path in ipairs(want) do
+        if now[i] ~= path then
+            for j = i + 1, #now do
+                if now[j] == path then
+                    mp.commandv("playlist-move", j - 1, i - 1)
+                    table.insert(now, i, table.remove(now, j))
+                    break
+                end
+            end
+        end
+    end
+end
+
 function M.set_shuffle(on)
     M.shuffle = on
-    if on then mp.command("playlist-shuffle") else mp.command("playlist-unshuffle") end
+    if on then
+        mp.command("playlist-shuffle")
+        -- the track playing goes first, so nothing ends up behind it unplayed
+        local cur = mp.get_property_number("playlist-pos", -1)
+        if cur > 0 then mp.commandv("playlist-move", cur, 0) end
+    elseif #M.order > 0 then reorder(M.order)
+    else mp.command("playlist-unshuffle") end
 end
 
 function M.cycle_repeat(dir)
@@ -256,7 +295,9 @@ end
 -- Last known place, kept up to date because time-pos and playlist-pos are
 -- already gone by the time the shutdown event runs.
 local last_index, last_pos = 1, 0
-mp.observe_property("playlist-pos", "number", function(_, v) if v and v >= 0 then last_index = v + 1 end end)
+mp.observe_property("playlist-pos", "number", function(_, v)
+    if v and v >= 0 and v + 1 ~= last_index then last_index, last_pos = v + 1, 0 end
+end)
 mp.add_periodic_timer(1, function()
     local t = mp.get_property_number("time-pos")
     if t then last_pos = t end
@@ -268,13 +309,12 @@ function M.save_session(play)
     if #paths == 0 then return end
     local data = {
         paths = paths, index = last_index, pos = mp.get_property_number("time-pos") or last_pos,
-        shuffle = M.shuffle, ["repeat"] = M.repeat_mode, play = play or false,
+        shuffle = M.shuffle, ["repeat"] = M.repeat_mode, play = play or false, order = M.order,
     }
+    if mp.get_property_native("idle-active") then data.index, data.pos = 1, 0 end  -- played to its end
     local f = io.open(SESSION, "w")
     if f then f:write(utils.format_json(data)); f:close() end
 end
-
-local pending_seek
 
 function M.restore_session()
     local f = io.open(SESSION, "r")
@@ -289,9 +329,9 @@ function M.restore_session()
     local function load(_, idle)
         if not idle then return end
         mp.unobserve_property(load)
-        mp.command("stop")
-        for _, p in ipairs(data.paths) do mp.commandv("loadfile", p, "append") end
-        pending_seek = data.pos
+        load_queue(data.paths)
+        if type(data.order) == "table" and #data.order > 0 then M.order = data.order end
+        pending = { path = data.paths[data.index or 1], pos = data.pos }
         mp.set_property_native("pause", not data.play)
         start_at(data.index)
     end
@@ -299,9 +339,13 @@ function M.restore_session()
     return data.paths[data.index or 1]
 end
 
+-- The saved position belongs to one track: if that one is gone (and another
+-- loads instead), it is not applied anywhere else.
 mp.register_event("file-loaded", function()
-    if pending_seek and pending_seek > 1 then mp.commandv("seek", pending_seek, "absolute") end
-    pending_seek = nil
+    if pending and pending.pos and pending.pos > 1 and mp.get_property("path") == pending.path then
+        mp.commandv("seek", pending.pos, "absolute")
+    end
+    pending = nil
 end)
 
 -- Hand the queue to a player on the second screen and quit, so EmulationStation
@@ -328,7 +372,8 @@ function M.background()
     if type(data) == "table" then
         M.shuffle, M.repeat_mode = data.shuffle or false, data["repeat"] or 1
         apply_repeat()
-        pending_seek = data.pos
+        if type(data.order) == "table" then M.order = data.order end
+        if type(data.paths) == "table" then pending = { path = data.paths[data.index or 1], pos = data.pos } end
     end
     mp.register_event("shutdown", function() if not M.handed_off then M.save_session(false) end end)
 end
@@ -491,9 +536,9 @@ function M.app()
     -- The album page and the player show the cover at the same place and
     -- size, so going from one to the other does not jump: as big as the
     -- screen's width allows next to a 480-unit column for the controls
-    -- (544 on a 3:2 screen, 416 on a 4:3 one).
+    -- (544 on a 3:2 screen, 416 on a 4:3 one, 260 on a square one).
     local COVER_X, COVER_Y = 44, 100
-    local function cover_size() return math.max(380, math.min(560, ui.W - 608)) end
+    local function cover_size() return math.max(260, math.min(560, ui.W - 608)) end
     -- Cover Flow (coverflow.lua draws the covers; the words are ours)
     local flow_now = false  -- drawn in this frame
     flow.picture = function(a, px) return covers.get(a, px) end
@@ -561,7 +606,10 @@ function M.app()
         local st = M.state()
         -- (and once the queue has played to its end: the last track, stopped)
         if st.path then last_st = st
-        elseif last_st then st = setmetatable({ paused = true }, { __index = last_st }) end
+        elseif last_st then  -- the track from before; shuffle, repeat and the rest as they are now
+            for _, k in ipairs({ "path", "title", "album", "artist", "dur", "album_dir" }) do st[k] = last_st[k] end
+            st.paused, st.pos = true, 0
+        end
         local here = album_of(st.path)
         local count = mp.get_property_number("playlist-count", 0)
         header(c, "Now playing", count > 0 and string.format("%d / %d", mp.get_property_number("playlist-pos", 0) + 1, count))
@@ -639,10 +687,12 @@ function M.app()
 
     M.album_count = #albums
     function M.rescan()
+        covers.reset()  -- pictures added or changed since are made again
         albums = M.scan()
         M.album_count = #albums
         lib_sel = math.max(1, math.min(lib_sel, #albums))
         if view == "album" then view = "library" end
+        draw()
     end
     menu.setup({ model = function() return S.snapshot(M.TABS) end, guide = "music", on_toggle = draw,
                  apply = function(key, dir) return M.action("setting", key, dir) end })
@@ -783,7 +833,8 @@ function M.app()
     -- moment later; draw (and ask for pictures) once its size has settled.
     local settle
     mp.observe_property("osd-dimensions", "native", function(_, dims)
-        if not (dims and ui.fit(dims.w, dims.h)) and settled then return end
+        if not dims or (dims.w or 0) <= 0 or (dims.h or 0) <= 0 then return end  -- no window yet
+        if not ui.fit(dims.w, dims.h) and settled then return end
         covers.scale = ui.S
         if settle then settle:kill() end
         settle = mp.add_timeout(0.2, function()

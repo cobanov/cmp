@@ -257,6 +257,11 @@ local function set_view(v)
     draw()
 end
 
+-- Wake the controls if hidden, else keep the page and restart the timer.
+function T.poke()
+    if view == "hidden" then T.show("controls") else arm_idle() end
+end
+
 function T.show(v)
     if view == "hidden" and backend.wake then backend.wake() end
     set_view(v or "controls")
@@ -274,6 +279,7 @@ end
 function T.hide()
     intro = false
     scrolling = false
+    down = nil
     if idle_timer then idle_timer:kill(); idle_timer = nil end
     drag = nil
     set_view("hidden")
@@ -344,6 +350,7 @@ end
 
 local function on_down(x, y)
     down = { x = x, y = y, t = mp.get_time() }
+    if idle_timer then idle_timer:kill(); idle_timer = nil end  -- not while a finger is down
     if view == "library" and L.in_list(y) then
         scrolling = true
         L.press(y)

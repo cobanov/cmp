@@ -40,4 +40,4 @@ end
 
 mp.register_event("playback-restart", function() mp.add_timeout(0.05, grab) end)
 mp.register_event("end-file", function() finish({ art = false }) end)
-mp.add_timeout(8, function() finish({ art = false }) end)
+mp.add_timeout(8, function() finish({ timeout = true }) end)  -- too slow: covers.lua tries again later

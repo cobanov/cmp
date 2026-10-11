@@ -27,11 +27,12 @@ if role == "remote" then
     end
     mp.register_script_message("handheld-state", function(json)
         state = utils.parse_json(json)
-        -- "Stay on" switched: show the screen, which also restarts the turn-off timer
+        -- "Stay on" switched: show the screen (or, already showing, start its
+        -- turn-off timer again) without leaving the page that is open
         local keep = state and state.keep_on or false
         if keep ~= last_keep then
             last_keep = keep
-            touch.show("controls")
+            touch.poke()
         end
         touch.draw()
     end)

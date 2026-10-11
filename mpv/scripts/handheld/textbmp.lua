@@ -108,7 +108,7 @@ function B.measure(text, size, bold)
     if not init() then return nil end
     local script = string.format(HEAD, 4096, 256) ..
         string.format("Dialogue: 0,0:00:00.00,0:00:10.00,Default,,0,0,0,,{\\an7\\pos(0,0)\\fs%d\\b%d\\bord0\\shad0\\fnDejaVu Sans}%s\n",
-                      size, bold and 1 or 0, (text:gsub("\\", "\\\\"):gsub("{", "\\{"):gsub("}", "\\}")))
+                      size, bold and 1 or 0, (text:gsub("\\", "\\\226\129\160"):gsub("{", "\\{"):gsub("}", "\\}")))
     local mem = ffi.new("char[?]", #script + 1, script)
     local track = lib.ass_read_memory(ass, mem, #script, nil)
     if track == nil then return nil end

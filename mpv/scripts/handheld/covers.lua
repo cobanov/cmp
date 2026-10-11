@@ -33,12 +33,6 @@ function C.setup(script_dir, scale, ready)
     os.execute("mkdir -p " .. CACHE)
 end
 
-local function exists(p)
-    local f = p and io.open(p, "rb")
-    if f then f:close(); return true end
-    return false
-end
-
 local function key_of(dir)  -- djb2, as hex
     local h = 5381
     for i = 1, #dir do h = (h * 33 + dir:byte(i)) % 4294967296 end
@@ -46,6 +40,17 @@ local function key_of(dir)  -- djb2, as hex
 end
 
 local function cached(dir, px) return string.format("%s/%s-%d.bgra", CACHE, key_of(dir), px) end
+
+-- Write a file whole or not at all: a short picture file crashes mpv.
+local function put(path, data)
+    local tmp = path .. ".tmp"
+    local f = io.open(tmp, "wb")
+    if not f then return false end
+    local ok = f:write(data)
+    ok = f:close() and ok
+    if not ok then os.remove(tmp); return false end
+    return os.rename(tmp, path) and true or false
+end
 
 -- Box-filter the middle square of a w x h BGRA picture to px x px.
 local function shrink(src, w, h, px, dst_path)
@@ -72,15 +77,32 @@ local function shrink(src, w, h, px, dst_path)
             out[d], out[d + 1], out[d + 2], out[d + 3] = b / n, g / n, r / n, 255
         end
     end
-    local f = io.open(dst_path, "wb")
-    if f then f:write(ffi.string(out, px * px * 4)); f:close() end
+    return put(dst_path, ffi.string(out, px * px * 4))
 end
 
+local function size_of(path)
+    local i = path and utils.file_info(path)
+    return i and i.size or -1
+end
+
+-- A picture file is used only when it is whole: mpv maps width * height * 4
+-- bytes of it, and a short file (a full card, a helper cut off) crashes mpv.
+local function whole(path, w, h) return size_of(path) >= w * (h or w) * 4 end
+
+local function forget(dir)
+    for k in pairs(known) do if k:sub(1, #dir + 1) == dir .. "@" then known[k] = nil end end
+end
+
+-- What the helper found for a folder, or false when it has not looked yet
+-- or the folder changed since (a picture added or replaced).
 local function load_info(dir)
     if info[dir] ~= nil then return info[dir] end
     local f = io.open(string.format("%s/%s.json", CACHE, key_of(dir)), "r")
     local data = f and utils.parse_json(f:read("*a") or "")
     if f then f:close() end
+    if type(data) == "table" and data.mtime and data.mtime ~= (utils.file_info(dir) or {}).mtime then
+        data = nil  -- changed: look again
+    end
     info[dir] = type(data) == "table" and data or false
     return info[dir]
 end
@@ -95,39 +117,54 @@ local function run_next()
     busy = true
     local prefix = string.format("%s/%s", CACHE, key_of(a.dir))
     -- a picture in the album folder wins (with disc folders, mpv would only
-    -- look next to the first track)
+    -- look next to the first track); --cover-art-file takes one path as it is
     local art = {}
     for _, f in ipairs(utils.readdir(a.dir, "files") or {}) do
         local base, ext = f:lower():match("^(.+)%.(%a+)$")
         if (ext == "jpg" or ext == "jpeg" or ext == "png")
             and (base == "cover" or base == "folder" or base == "front" or base == "album" or base == "albumart") then
-            art[#art + 1] = "--cover-art-files=" .. utils.join_path(a.dir, f)
+            art[#art + 1] = "--cover-art-file=" .. utils.join_path(a.dir, f)
             break
         end
     end
+    os.remove(prefix .. "-" .. big .. ".json")
     mp.command_native_async({
         name = "subprocess", playback_only = false, capture_stdout = true, capture_stderr = true,
         args = { "mpv", "--no-config", "--vo=null", "--ao=null", "--pause", "--really-quiet",
                  "--audio-display=embedded-first", "--cover-art-auto=exact",
-                 string.format("--vf=lavfi=[scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d]", big, big, big, big),
+                 -- setsar=1: square pixels, so the picture comes out square (a JPEG's
+                 -- density can otherwise make it 561x560)
+                 string.format("--vf=lavfi=[scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d,setsar=1]",
+                               big, big, big, big),
                  "--script=" .. helper_dir .. "/grab.lua", "--script-opts=grab-out=" .. prefix .. "-" .. big,
                  art[1] or "--cover-art-auto=exact", a.tracks[1] },
     }, function()
         busy = false
-        -- the helper wrote PREFIX-BIG.bgra and PREFIX-BIG.json
+        -- the helper wrote PREFIX-BIG.bgra and then PREFIX-BIG.json
         local f = io.open(prefix .. "-" .. big .. ".json", "r")
         local data = f and utils.parse_json(f:read("*a") or "")
         if f then f:close() end
-        if type(data) ~= "table" then data = { art = false } end
-        data.big = big  -- the size in the picture's file name; w and h are what came out
-        local out = io.open(prefix .. ".json", "w")
-        if out then out:write(utils.format_json(data)); out:close() end
         os.remove(prefix .. "-" .. big .. ".json")
-        info[a.dir] = data
-        for k in pairs(known) do if k:sub(1, #a.dir + 1) == a.dir .. "@" then known[k] = nil end end
+        if type(data) ~= "table" or data.timeout then
+            -- cut off or too slow: no picture for now, and nothing written,
+            -- so the next start tries again
+            info[a.dir] = { art = false }
+        else
+            data.big = big  -- the size in the picture's file name; w and h are what came out
+            data.mtime = (utils.file_info(a.dir) or {}).mtime
+            if data.art and not whole(prefix .. "-" .. big .. ".bgra", data.w, data.h) then data.art = false end
+            put(prefix .. ".json", utils.format_json(data))
+            info[a.dir] = data
+        end
+        forget(a.dir)
         if on_ready then on_ready(a) end
         run_next()
     end)
+end
+
+-- Forget what was looked up, so a rescan notices changed folders.
+function C.reset()
+    known, info = {}, {}
 end
 
 -- Path of the album's picture px pixels wide, or nil while it is being made
@@ -136,30 +173,31 @@ function C.get(a, px)
     local k = a.dir .. "@" .. px
     if known[k] ~= nil then return known[k] or nil end
     local path
-    if px == 80 and exists(a.dir .. "/cover-80.bgra") then path = a.dir .. "/cover-80.bgra"
-    elseif px == 400 and exists(a.dir .. "/cover-400.bgra") then path = a.dir .. "/cover-400.bgra"
-    elseif exists(cached(a.dir, px)) then path = cached(a.dir, px)
+    if px == 80 and whole(a.dir .. "/cover-80.bgra", 80) then path = a.dir .. "/cover-80.bgra"
+    elseif px == 400 and whole(a.dir .. "/cover-400.bgra", 400) then path = a.dir .. "/cover-400.bgra"
     else
         local i = load_info(a.dir)
-        if i and i.art then
-            -- the file is named after the size asked for (older caches: after w or h)
-            local f = io.open(cached(a.dir, i.big or i.w), "rb") or (not i.big and io.open(cached(a.dir, i.h), "rb"))
-            if f and not i.big then
-                i.big = exists(cached(a.dir, i.w)) and i.w or i.h
-            end
-            if f then
-                local data = f:read("*a")
-                f:close()
-                if px == i.w and i.w == i.h then path = cached(a.dir, i.big)
-                elseif #data >= i.w * i.h * 4 then shrink(data, i.w, i.h, px, cached(a.dir, px)); path = cached(a.dir, px) end
-            end
-        elseif i == false and a.tracks and a.tracks[1] then
-            -- never looked at: ask the helper
+        if i == false then
+            if not (a.tracks and a.tracks[1]) then return nil end
+            -- never looked at (or changed): ask the helper
             local queued = false
             for _, j in ipairs(queue) do if j.album.dir == a.dir then queued = true end end
             if not queued then queue[#queue + 1] = { album = a, px = px } end
             run_next()
             return nil
+        elseif i.art then
+            local big = cached(a.dir, i.big or i.w)
+            if not i.big and not whole(big, i.w, i.h) then big = cached(a.dir, i.h) end  -- older caches
+            if whole(cached(a.dir, px), px) and px ~= (i.big or i.w) then path = cached(a.dir, px)
+            elseif px == i.w and i.w == i.h and whole(big, px) then path = big
+            elseif whole(big, i.w, i.h) then
+                local f = io.open(big, "rb")
+                local data = f and f:read("*a")
+                if f then f:close() end
+                local dst = cached(a.dir, px)
+                if dst == big then dst = dst:gsub("%.bgra$", "s.bgra") end  -- never over the source
+                if data and shrink(data, i.w, i.h, px, dst) then path = dst end
+            end
         end
     end
     known[k] = path or false

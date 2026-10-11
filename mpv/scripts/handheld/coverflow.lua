@@ -287,7 +287,8 @@ local function preload()
     for d = 5, 6 do
         for _, i in ipairs({ target + d, target - d }) do
             local a = albums[i]
-            if a and a.cover and cache[a.cover] == nil then
+            local key = a and (F.picture and F.picture(a, SRC) or a.cover)
+            if key and cache[key] == nil then
                 cover(a)
                 if F.shown and not timer then mp.add_timeout(0.05, preload) end
                 return
@@ -329,9 +330,14 @@ function F.setup()
     SIDE_W, SIDE_OUT, SIDE_IN = px(130), px(368), px(248)
     FIRST, GAP = px(255), px(70)
     REACH = (CX - FIRST) / GAP + 1.6  -- wider screens show more turned covers
+    -- keep every cover in view, and the next ones, or each frame reloads them
+    CACHE = 2 * math.ceil(REACH) + 5
     F.X, F.Y, F.W, F.H, F.STRIDE = 0, ui.px(F.TOP), W, H, STRIDE
     strip = ffi.new(PIXELS, STRIDE * H)
     cache, used, clock, placeholder = {}, {}, 0, nil
+    -- sizes changed: the next F.go draws afresh instead of sliding the old strip
+    if timer then timer:kill(); timer = nil end
+    F.shown = false
 end
 
 -- Draw again with the same albums (a picture arrived).
