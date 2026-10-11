@@ -39,6 +39,8 @@ local function key_of(dir)  -- djb2, as hex
     return bit.tohex(bit.tobit(h))
 end
 
+C.key_of = key_of  -- (tags.lua names its files the same way)
+
 local function cached(dir, px) return string.format("%s/%s-%d.bgra", CACHE, key_of(dir), px) end
 
 -- Write a file whole or not at all: a short picture file crashes mpv.

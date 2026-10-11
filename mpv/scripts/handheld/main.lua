@@ -69,7 +69,9 @@ if role == "bottom" and mp.get_opt("handheld-kind") == "music" then
     music.background()
     -- album pictures for the touch library, made on the device when missing
     require("covers").setup(mp.get_script_directory(), 1, function() touch.draw() end)
+    require("tags").setup(nil, function() touch.draw() end)  -- track titles, read when an album is shown
     touch.init({ state = music.state, action = music.action, library = music.library, names = music.names,
+                 track_name = music.track_name,
                  wake = function() request({ wake = true }) end,
                  sleep = function() request({ sleep = true }) end }, false)
     mp.add_timeout(0.2, function() touch.show("controls") end)

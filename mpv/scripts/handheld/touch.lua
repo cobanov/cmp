@@ -326,7 +326,7 @@ local function run(hit)
     elseif name == "setting" then
         backend.action("setting", hit.data, hit.data2)
         if hit.close then set_view("controls") end
-    elseif name == "library" then L.open(backend.library(), backend.names); set_view("library")
+    elseif name == "library" then L.open(backend.library(), backend.names, backend.track_name); set_view("library")
     elseif name == "lib-done" then set_view("controls")
     elseif name:sub(1, 4) == "lib-" then
         if L.tap(hit, backend.action) == "play" then set_view("controls") else draw() end

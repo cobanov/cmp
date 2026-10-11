@@ -2,6 +2,18 @@
 
 All notable changes to CMP. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org).
 
+## [0.3.0] - 2026-10-12
+
+### Added
+
+- **Headphones out, music paused:** pulling the headphones out pauses the player (also the background player on dual-screen devices) instead of carrying on from the speaker.
+- **Jump by letter** in a long library: ↑↓ in Cover Flow, ←→ in the album list. The letter shows big for a moment. Holding a direction also speeds up after a second.
+- **Track names from the tags** on the album page, in the queue and in the touch library. Until an album's tags are read (once, in the background, then kept) the file names show.
+
+### Changed
+
+- **The library opens at once.** It is kept between starts; folders changed since are noticed in the background and only then read again. Reading the library is also faster.
+
 ## [0.2.0] - 2026-10-12
 
 ### Added
@@ -36,5 +48,6 @@ The first release of CMP, the Console Music Player, for ROCKNIX.
 
 - ROCKNIX with its mpv 0.41 (no other dependencies). Tested on the Anbernic RG SP (single screen, 720x480) and the Anbernic RG DS Plus (two screens, 1024x768).
 
+[0.3.0]: https://github.com/cobanov/cmp/releases/tag/v0.3.0
 [0.2.0]: https://github.com/cobanov/cmp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/cobanov/cmp/releases/tag/v0.1.0

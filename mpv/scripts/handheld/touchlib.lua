@@ -22,6 +22,7 @@ local TRACKS_X = 456              -- the track list, right of the album cover
 
 local albums, album_i = {}, nil
 local names = function(a) return a.title, a.artist end  -- folder name or tags (music.names)
+local track_name                -- (path, album) -> the title tag or the file name (music.track_name)
 local scroll = { albums = 0, tracks = 0 }
 local finger, glide             -- a finger scrolling; the slide after a flick
 
@@ -210,11 +211,13 @@ local function draw_tracks(c, cv, st)
         local y = (i - 1) * TRACK_ROW - s
         if y + TRACK_ROW > 0 and y < LIST_H then
             local playing = st and st.path == path
-            local r = row(string.format("t%d.%d%s", album_i, i, playing and "p" or ""), w, TRACK_ROW,
+            local name = track_name and track_name(path, a) or title_of(path)
+            -- (the name is in the key: a title arriving from the tags draws the row again)
+            local r = row(string.format("t%d.%d%s|%s", album_i, i, playing and "p" or "", name), w, TRACK_ROW,
                 i > 1 and { 20, 1000 - TRACKS_X },
                 function(l)
                     ui.text(l, 34, TRACK_ROW / 2, playing and "♪" or tostring(i), 24, playing and ui.ACCENT or ui.DIM, 4)
-                    ui.text(l, 80, TRACK_ROW / 2, ui.trim(title_of(path), 27), 29, playing and ui.ACCENT or ui.WHITE, 4)
+                    ui.text(l, 80, TRACK_ROW / 2, ui.trim(name, 27), 29, playing and ui.ACCENT or ui.WHITE, 4)
                 end)
             visible[#visible + 1] = { r, y }
             ui.hit(cv, x0, TOP + math.max(y, 0), w, TRACK_ROW, "lib-track", i)
@@ -228,9 +231,10 @@ end
 
 -- What touch.lua calls ------------------------------------------------------
 
-function L.open(list, names_of)
+function L.open(list, names_of, track_name_of)
     albums = list or {}
     if names_of then names = names_of end
+    if track_name_of then track_name = track_name_of end
     L.page = "albums"
     clamp("albums")
 end

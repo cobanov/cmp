@@ -15,6 +15,7 @@ local utils = require "mp.utils"
 local ui = require "ui"
 local S = require "settings"
 local covers = require "covers"
+local tags = require "tags"
 
 local M = {}
 
@@ -65,12 +66,13 @@ end
 -- bare "Album" (named from its tags later). Tracks lying in the music folder
 -- itself make one album, "Singles".
 
--- "2 x" before "10 x", "CD2" before "CD10", whatever the case.
-local function natural_less(a, b)
-    local function key(s)
-        return (s:lower():gsub("%d+", function(d) return string.format("%012d", tonumber(d)) end))
-    end
-    return key(a) < key(b)
+-- "2 x" before "10 x", "CD2" before "CD10", whatever the case. Each name's
+-- key is made once: making it in every comparison was most of a scan's time.
+local function pad_number(d) return string.format("%012d", tonumber(d)) end
+local function sort_natural(list)
+    local keys = {}
+    for _, name in ipairs(list) do keys[name] = name:lower():gsub("%d+", pad_number) end
+    table.sort(list, function(a, b) return keys[a] < keys[b] end)
 end
 
 local function is_disc(name)
@@ -100,7 +102,7 @@ function M.scan()
         local tracks = {}
         for _, f in ipairs(utils.readdir(dir, "files") or {}) do
             local ext = f:match("%.([^.]+)$")
-            if ext and AUDIO[ext:lower()] and f:sub(1, 1) ~= "." then tracks[#tracks + 1] = utils.join_path(dir, f) end
+            if ext and AUDIO[ext:lower()] and f:sub(1, 1) ~= "." then tracks[#tracks + 1] = dir .. "/" .. f end
         end
         if #tracks > 0 then
             local d = describe(dir)
@@ -115,18 +117,70 @@ function M.scan()
         end
         if depth < 6 then
             for _, sub in ipairs(utils.readdir(dir, "dirs") or {}) do
-                if sub:sub(1, 1) ~= "." then walk(utils.join_path(dir, sub), depth + 1) end
+                if sub:sub(1, 1) ~= "." then walk(dir .. "/" .. sub, depth + 1) end
             end
         end
     end
     walk(ROOT, 0)
     for _, a in ipairs(albums) do
-        table.sort(a.tracks, natural_less)  -- disc folders in their order, then the track numbers
-        a.name = ((a.artist ~= "" and a.artist .. " - " or "") .. a.title):lower()
+        sort_natural(a.tracks)  -- disc folders in their order, then the track numbers
         -- pictures come from covers.lua, at the sizes each screen needs
     end
+    M.save_library(albums)
+    return M.sorted(albums)
+end
+
+function M.sorted(albums)
+    for _, a in ipairs(albums) do a.name = ((a.artist ~= "" and a.artist .. " - " or "") .. a.title):lower() end
     table.sort(albums, function(a, b) return a.name < b.name end)
     return albums
+end
+
+-- The library is kept between starts: reading every folder of a big
+-- library on an SD card takes seconds. The list from last time shows at
+-- once; M.check_library then asks find, in the background, whether any
+-- folder changed since it was written (adding, removing or renaming a file
+-- or folder changes its folder), and only then is everything read again.
+local LIBRARY = "/storage/.cache/cmp/library.json"
+local LIBRARY_VERSION = 1
+
+function M.save_library(albums)
+    local out = {}
+    for i, a in ipairs(albums) do
+        out[i] = { dir = a.dir, artist = a.artist, title = a.title, named = a.named, tracks = a.tracks }
+    end
+    os.execute("mkdir -p /storage/.cache/cmp")
+    local tmp = LIBRARY .. ".tmp"
+    local f = io.open(tmp, "w")
+    if not f then return end
+    local ok = f:write(utils.format_json({ version = LIBRARY_VERSION, root = ROOT, albums = out }))
+    if f:close() and ok then os.rename(tmp, LIBRARY) else os.remove(tmp) end
+end
+
+-- The albums from last time, or a fresh scan when there are none.
+function M.load_library()
+    local f = io.open(LIBRARY, "r")
+    local data = f and utils.parse_json(f:read("*a") or "")
+    if f then f:close() end
+    if type(data) == "table" and data.version == LIBRARY_VERSION and data.root == ROOT and type(data.albums) == "table" then
+        local albums = {}
+        for _, a in ipairs(data.albums) do
+            if type(a) == "table" and type(a.dir) == "string" and type(a.tracks) == "table" then albums[#albums + 1] = a end
+        end
+        return M.sorted(albums), true
+    end
+    return M.scan(), false
+end
+
+-- changed() is called, from the event loop, if any folder changed since
+-- the list was kept.
+function M.check_library(changed)
+    mp.command_native_async({
+        name = "subprocess", playback_only = false, capture_stdout = true, capture_stderr = true,
+        args = { "find", ROOT, "-maxdepth", "7", "-type", "d", "-newer", LIBRARY },
+    }, function(ok, r)
+        if ok and r and r.status == 0 and (r.stdout or "") ~= "" then changed() end
+    end)
 end
 
 local function album_of(path)
@@ -134,6 +188,13 @@ local function album_of(path)
     local a = describe((utils.split_path(path)))
     a.tracks = { path }
     return a
+end
+
+-- What to call a track: its title tag, else its file name. With the album
+-- given, its tags are read (in the background) if they are not known yet.
+function M.track_name(path, album)
+    if album then tags.want(album) end
+    return tags.title(path) or track_title(path)
 end
 
 -- What to call an album: its folder name ("Artist - Album"), else its tags.
@@ -189,7 +250,7 @@ end
 -- player browses them (the app on the main screen keeps its own list).
 local library
 function M.library()
-    library = library or M.scan()
+    library = library or (M.load_library())
     return library
 end
 
@@ -499,7 +560,7 @@ end
 
 function M.app()
     local overlay = mp.create_osd_overlay("ass-events")
-    local albums = M.scan()
+    local albums, from_cache = M.load_library()
     local view = "library"   -- library (list or Cover Flow) | album | playing
 
     local lib_sel, lib_top = 1, 1
@@ -515,6 +576,14 @@ function M.app()
     covers.setup(mp.get_script_directory(), ui.S, function()
         if draw then draw(); flow.refresh() end
     end)
+    tags.setup(nil, function() if draw and (view == "album" or view == "playing") then draw() end end)
+    -- the whole album a track belongs to (album_of only knows the folder)
+    local function full_album(path)
+        local a = album_of(path)
+        if not a then return nil end
+        for _, b in ipairs(albums) do if b.dir == a.dir then return b end end
+        return nil
+    end
 
     -- Covers are mpv overlays. Re-adding one on every redraw makes it blink,
     -- so only touch the ones that changed. Positions and sizes in units.
@@ -643,6 +712,38 @@ function M.app()
         return a and a.dir
     end
 
+    -- Jumping by letter in a long library: the first letter of what the
+    -- albums are sorted by ("artist - album"), shown big for a moment.
+    local UPPER = { ["ç"] = "Ç", ["ğ"] = "Ğ", ["ı"] = "I", ["ö"] = "Ö", ["ş"] = "Ş", ["ü"] = "Ü" }
+    local function letter(a)
+        local c = (a and a.name or ""):match("^[%z\1-\127\194-\244][\128-\191]*") or ""
+        if c:match("^%a$") then return c:upper() end
+        if #c > 1 then return UPPER[c] or c end
+        return "#"
+    end
+    local shown_letter, letter_until = nil, 0
+    local function jump_letter(dir)
+        if #albums == 0 then return end
+        local here, i = letter(albums[lib_sel]), lib_sel
+        if dir > 0 then
+            while i < #albums and letter(albums[i]) == here do i = i + 1 end
+            if letter(albums[i]) == here then i = lib_sel end  -- the last letter already
+        elseif i > 1 and letter(albums[i - 1]) == here then
+            while i > 1 and letter(albums[i - 1]) == here do i = i - 1 end  -- to this letter's first
+        elseif i > 1 then
+            i = i - 1
+            local before = letter(albums[i])
+            while i > 1 and letter(albums[i - 1]) == before do i = i - 1 end  -- to the one before
+        end
+        lib_sel = i
+        shown_letter, letter_until = letter(albums[i]), mp.get_time() + 0.9
+        mp.add_timeout(0.95, function() if mp.get_time() >= letter_until then draw() end end)
+    end
+    local function letter_showing() return shown_letter and mp.get_time() < letter_until end
+    local function library_hints(along)
+        return { { "A", "Open" }, { "X", "Now playing" }, { along, "Letter" }, { "Select", "Settings" } }
+    end
+
     local ROWS, ROW_H, ROW_Y, THUMB = 4, 128, 100, 100
     local function draw_library(cv)
         local c = cv.lines
@@ -671,7 +772,11 @@ function M.app()
             ui.text(c, ui.W - 44, y + 4 + THUMB / 2, playing and "♪" or tostring(#a.tracks), T_ASIDE,
                 playing and ui.ACCENT or ui.DIM, 6)
         end
-        footer(c, { { "A", "Open" }, { "X", "Now playing" }, { "Select", "Settings" } })
+        if letter_showing() then  -- (beside the pictures, which would draw over it)
+            ui.rect(c, ui.W / 2 - 80, 304, 160, 160, 32, ui.RAISED, 0x18)
+            ui.text(c, ui.W / 2, 384, shown_letter, 100, ui.WHITE, 5, true)
+        end
+        footer(c, library_hints("←→"))
     end
 
     local TROWS, TROW_H = 7, 80
@@ -698,9 +803,15 @@ function M.app()
         local more = playing and "♪ Playing" or (#a.tracks .. " tracks")
         ui.text(c, ui.W / 2, 640, ui.fit_text(artist, ui.W - 360, T_SUB) .. "  ·  " .. more, T_SUB,
             playing and ui.ACCENT or ui.GREY, 8)
-        ui.text(c, 44, 36, lib_sel .. " / " .. #albums, T_ASIDE, ui.DIM, 7)
+        -- top left, above the covers: the letter after a jump, then where we are
+        local x = 44
+        if letter_showing() then
+            ui.text(c, x, 22, shown_letter, T_TITLE, ui.ACCENT, 7, true)
+            x = x + ui.width(shown_letter, T_TITLE, true) + 18
+        end
+        ui.text(c, x, 36, lib_sel .. " / " .. #albums, T_ASIDE, ui.DIM, 7)
         status(c)
-        footer(c, { { "A", "Open" }, { "X", "Now playing" }, { "Select", "Settings" } })
+        footer(c, library_hints("↑↓"))
     end
 
     local function draw_album(cv)
@@ -721,7 +832,7 @@ function M.app()
             local T_TRACK = 36  -- the track names, a little bigger than other second lines
             ui.text(c, x + 8, mid, is_playing and "♪" or string.format("%d", i), 28,
                 is_playing and ui.ACCENT or ui.DIM, 4)
-            ui.text(c, x + 60, mid, ui.fit_text(track_title(album.tracks[i]), right - x - 76, T_TRACK), T_TRACK,
+            ui.text(c, x + 60, mid, ui.fit_text(M.track_name(album.tracks[i], album), right - x - 76, T_TRACK), T_TRACK,
                 is_playing and ui.ACCENT or ui.WHITE, 4)
         end
         footer(c, { { "A", "Play" }, { "B", "Back" }, { "X", "Now playing" }, { "Select", "Settings" } })
@@ -799,7 +910,8 @@ function M.app()
             if zone == "queue" and i == queue_sel then ui.rect(c, x - 16, y, width + 32, QROW_H - 8, 16, ui.RAISED) end
             local now = i == cur
             ui.text(c, x + 6, mid, now and "♪" or tostring(i + 1), T_HINT, now and ui.ACCENT or ui.DIM, 4)
-            ui.text(c, x + 54, mid, ui.fit_text(track_title(list[i + 1].filename), width - 70, T_SUB), T_SUB,
+            local path = list[i + 1].filename
+            ui.text(c, x + 54, mid, ui.fit_text(M.track_name(path, full_album(path)), width - 70, T_SUB), T_SUB,
                 now and ui.ACCENT or ui.WHITE, 4)
         end
         local hints = { { "↑↓", "Move" } }
@@ -830,14 +942,29 @@ function M.app()
     M.draw = draw
 
     M.album_count = #albums
-    function M.rescan()
-        covers.reset()  -- pictures added or changed since are made again
+    -- Read the library again, staying on the same album (and page) when it
+    -- is still there.
+    local function reload()
+        local keep, open = albums[lib_sel] and albums[lib_sel].dir, album and album.dir
         albums = M.scan()
         M.album_count = #albums
         lib_sel = math.max(1, math.min(lib_sel, #albums))
-        if view == "album" then view = "library" end
+        local still_open = false
+        for i, a in ipairs(albums) do
+            if a.dir == keep then lib_sel = i end
+            if a.dir == open then album, still_open = a, true end
+        end
+        if view == "album" and not still_open then view = "library" end
+        if album then tr_sel = math.min(tr_sel, #album.tracks) end
         draw()
     end
+    function M.rescan()
+        covers.reset()  -- pictures and titles added or changed since are read again
+        tags.reset()
+        reload()
+    end
+    -- the list from last time is up already; read it again if a folder changed
+    if from_cache then M.check_library(reload) end
     menu.setup({ model = function() return S.snapshot(M.TABS) end, guide = "music", on_toggle = draw,
                  apply = function(key, dir) return M.action("setting", key, dir) end })
 
@@ -855,7 +982,7 @@ function M.app()
     local function play(list, index, shuffle)
         if shuffle then shuffle_play(list) else M.shuffle = false; M.play_list(list, index) end
         -- what the player shows until the track has loaded
-        last_st = { path = list[index or 1], album = "", title = track_title(list[index or 1]), artist = "",
+        last_st = { path = list[index or 1], album = "", title = M.track_name(list[index or 1]), artist = "",
                     paused = false, pos = 0, dur = 0, has_prev = false, has_next = false }
         if album and not shuffle then
             local t, a = M.names(album)
@@ -879,12 +1006,22 @@ function M.app()
         if not screen_off then draw() end
     end)
 
+    local step = 1  -- how far a held direction moves (set by the key handler)
     local keys = {
+        -- along the list one album (faster when held), across it by letter
         library = {
-            up = function() lib_sel = math.max(1, lib_sel - 1) end,
-            down = function() lib_sel = math.min(#albums, lib_sel + 1) end,
-            left = function() lib_sel = math.max(1, lib_sel - (M.settings.view == "flow" and 1 or ROWS)) end,
-            right = function() lib_sel = math.min(#albums, lib_sel + (M.settings.view == "flow" and 1 or ROWS)) end,
+            up = function()
+                if M.settings.view == "flow" then jump_letter(-1) else lib_sel = math.max(1, lib_sel - step) end
+            end,
+            down = function()
+                if M.settings.view == "flow" then jump_letter(1) else lib_sel = math.min(#albums, lib_sel + step) end
+            end,
+            left = function()
+                if M.settings.view == "flow" then lib_sel = math.max(1, lib_sel - step) else jump_letter(-1) end
+            end,
+            right = function()
+                if M.settings.view == "flow" then lib_sel = math.min(#albums, lib_sel + step) else jump_letter(1) end
+            end,
             a = function()
                 if albums[lib_sel] then album, tr_sel, tr_top, view = albums[lib_sel], 1, 1, "album" end
             end,
@@ -948,6 +1085,8 @@ function M.app()
         },
     }
     local NO_REPEAT = { a = true, x = true, y = true, b = true }
+    -- a direction held down: 1 album a step, then 3, then 8
+    local held, repeats = nil, 0
 
     mp.register_script_message("handheld", function(key, kind)
         if key == "start" then mp.command("quit"); return end
@@ -964,6 +1103,8 @@ function M.app()
         if key == "r2" then M.action("seek", 10); return end
         if key == "y" then lock(); return end
         if kind == "repeat" and NO_REPEAT[key] then return end
+        if kind == "repeat" and key == held then repeats = repeats + 1 else held, repeats = key, 0 end
+        step = repeats < 6 and 1 or repeats < 16 and 3 or 8
         local fn = keys[view][key]
         if fn then fn(); draw() end
     end)

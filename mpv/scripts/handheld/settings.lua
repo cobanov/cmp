@@ -64,7 +64,7 @@ end
 
 S.ABOUT = {
     name = "CMP",
-    version = "0.2.0",
+    version = "0.3.0",
     tagline = "Console Music Player, for retro handhelds",
     lines = {
         { "Made by", "Mert Cobanov" },
@@ -130,8 +130,8 @@ S.GUIDE = {
         { "A", "Choose: open the album, play a track" },
         { "B", "Back" },
         { "X", "Now playing" },
-        { "↑ ↓", "Move; in the player, the queue" },
-        { "← →", "Browse; in the player, the controls" },
+        { "↑ ↓", "Move; in Cover Flow, jump by letter" },
+        { "← →", "Browse; in the album list, jump by letter" },
         { "L1 R1", "Previous / next track" },
         { "Y", "Screen off, buttons locked; hold Y to unlock" },
         { "L1 + R1", "Together: play in the background (two screens)" },
