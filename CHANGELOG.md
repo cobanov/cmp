@@ -8,7 +8,7 @@ All notable changes to CMP. The format follows [Keep a Changelog](https://keepac
 
 - **Options on Y:** every page has an options panel: play an album or song next, add it to the queue, shuffle an album, search, and turn the screen off. In the player's queue: play next, move up or down, remove, clear the queue.
 - **Search** the library from the pad: a keyboard at the left, albums and songs that match at the right, updated with every letter. Case, accents and Turkish letters do not matter ("kotu" finds "Kötü").
-- **Lyrics:** from an `.lrc` file next to the track (same name) or from its tags. Timed lyrics follow the song in place of the cover, the line being sung in the middle; plain ones move along with it. Y > Hide lyrics / Show lyrics.
+- **Lyrics:** from an `.lrc` file next to the track (same name) or from its tags. Timed lyrics follow the song in place of the cover, the line being sung in the middle; plain ones move along with it. The microphone next to Repeat turns them on and off (lit while they show, dim when the song has none).
 - **Internet radio:** Y > Radio in the library. The stations come from `radio.m3u` in the music folder, made with six long-lived stations the first time and editable over the network share. The player shows the station, the song it announces and LIVE.
 - **Audiobooks:** a Speed setting (0.75× to 2×, the pitch stays), tracks of 20 minutes or more start where they were left, and bookmarks (Y > Add bookmark, Y > Bookmarks).
 - **ReplayGain** (Settings: Off, Track, Album): tracks at one loudness from their tags, R128 in Opus included.

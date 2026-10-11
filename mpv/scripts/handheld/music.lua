@@ -759,6 +759,9 @@ function M.action(name, a, b)
         M.shuffle_play(all)
     elseif name == "shuffle" then M.set_shuffle(not M.shuffle)
     elseif name == "repeat" then M.cycle_repeat()
+    elseif name == "lyrics" then
+        M.settings.lyrics = not M.settings.lyrics
+        save_settings()
     elseif name == "to-bottom" then M.to_bottom()
     elseif name == "to-top" then M.to_top()
     elseif name == "quit" then mp.command("quit")
@@ -1074,7 +1077,7 @@ function M.app()
     -- the focused one; B in the queue goes back to the controls.
     local queue_sel           -- playlist index (0-based) under the cursor
     local QROWS, QROW_H = 4, 58
-    local CONTROLS = { "prev", "pause", "next", "shuffle", "repeat" }
+    local CONTROLS = { "prev", "pause", "next", "shuffle", "repeat", "lyrics" }
     local control, zone = 2, "controls"  -- focus starts on play/pause
 
     -- While a new queue loads there is no track for a moment; keep showing
@@ -1172,7 +1175,7 @@ function M.app()
         -- the controls: previous, play/pause, next, shuffle, repeat
         -- (kept small enough to leave the artist's line clear above them)
         local cy = 306
-        local cx = { x + 26, x + 110, x + 194, x + 276, x + 346 }
+        local cx = { x + 26, x + 110, x + 194, x + 276, x + 346, x + 416 }
         if zone == "controls" then  -- the focus: a ring around the control
             ui.ring(c, cx[control], cy, control == 2 and 48 or 30, 4, ui.ACCENT)
         end
@@ -1183,6 +1186,9 @@ function M.app()
         local rep = st["repeat"] or "Off"
         ui.icon_shuffle(c, cx[4], cy, 30, st.shuffle and ui.ACCENT or ui.GREY)
         ui.icon_repeat(c, cx[5], cy, 30, rep ~= "Off" and ui.ACCENT or ui.GREY, rep == "One")
+        -- lyrics on or off: lit while they show, dim when the song has none
+        local has_lyrics = st.path and lyrics.get(st.path)
+        ui.icon_mic(c, cx[6], cy, 32, not has_lyrics and ui.DIM or (M.settings.lyrics and ui.ACCENT or ui.GREY))
         -- progress (a station is live: no bar, nothing to seek)
         local by = 384
         local frac = (st.dur or 0) > 0 and math.min(1, (st.pos or 0) / st.dur) or 0
@@ -1397,12 +1403,6 @@ function M.app()
             else
                 title = "Now playing"
                 if mp.get_property("path") then add("Add bookmark", M.add_bookmark) end
-                if lyrics.get(mp.get_property("path")) then
-                    add(M.settings.lyrics and "Hide lyrics" or "Show lyrics", function()
-                        M.settings.lyrics = not M.settings.lyrics
-                        save_settings()
-                    end)
-                end
             end
             if #M.bookmarks() > 0 then add("Bookmarks", function() open_bookmarks() end) end
             if count > 1 then
@@ -1481,6 +1481,10 @@ function M.app()
             end,
             a = function()
                 if zone == "controls" then
+                    if CONTROLS[control] == "lyrics" and not lyrics.get(mp.get_property("path")) then
+                        show_note("No lyrics for this song")
+                        return
+                    end
                     M.action(CONTROLS[control])
                     return
                 elseif zone == "progress" then

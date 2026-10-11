@@ -184,6 +184,24 @@ function ui.icon_shuffle(c, cx, cy, s, color)
 end
 
 -- A loop with arrows; "one" adds a 1 inside for repeating a single track.
+-- A microphone (lyrics): a capsule in a cradle, on a stand.
+function ui.icon_mic(c, cx, cy, s, color)
+    local w, h = s * 0.36, s * 0.56
+    local top = cy - s * 0.5
+    ui.rect(c, cx - w / 2, top, w, h, w / 2, color)
+    local thick = math.max(2, math.floor(s * 0.08))
+    local r, my = s * 0.33, top + h * 0.55  -- the cradle: a half circle under the capsule
+    local px, py = cx - r, my
+    for i = 1, 8 do
+        local a = math.pi * i / 8
+        local nx, ny = cx - r * math.cos(a), my + r * math.sin(a)
+        ui.line(c, px, py, nx, ny, thick, color)
+        px, py = nx, ny
+    end
+    ui.line(c, cx, my + r, cx, cy + s * 0.5, thick, color)
+    ui.line(c, cx - s * 0.2, cy + s * 0.5, cx + s * 0.2, cy + s * 0.5, thick, color)
+end
+
 function ui.icon_repeat(c, cx, cy, s, color, one)
     local w, h = s * 0.95, s * 0.6
     ui.outline(c, cx - w / 2, cy - h / 2, w, h, h / 2, math.max(2, math.floor(s * 0.07)), color)
