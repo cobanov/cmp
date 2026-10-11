@@ -68,6 +68,12 @@ eq.apply()
 crossfade.set(M.settings.crossfade or 0)
 local CROSSFADE = { 0, 2, 4, 6, 8, 10 }
 
+-- No subtitles in the music player: mpv would load a track's .lrc as one
+-- and print its lines at the bottom, over the key hints (the lyrics have
+-- their own place, see lyrics.lua).
+mp.set_property("sub-auto", "no")
+mp.set_property("sub-visibility", "no")
+
 -- ReplayGain: tracks (or whole albums) at one loudness, from their tags
 -- (R128 in Opus); files without tags play as they are.
 local REPLAYGAIN = { { "no", "Off" }, { "track", "Track" }, { "album", "Album" } }
