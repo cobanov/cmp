@@ -184,22 +184,24 @@ function ui.icon_shuffle(c, cx, cy, s, color)
 end
 
 -- A loop with arrows; "one" adds a 1 inside for repeating a single track.
--- A microphone (lyrics): a capsule in a cradle, on a stand.
+-- A handheld (karaoke) microphone, leaning a little: a round head at the
+-- top, a dark collar, and a tapering handle down to the left.
 function ui.icon_mic(c, cx, cy, s, color)
-    local w, h = s * 0.36, s * 0.56
-    local top = cy - s * 0.5
-    ui.rect(c, cx - w / 2, top, w, h, w / 2, color)
-    local thick = math.max(2, math.floor(s * 0.08))
-    local r, my = s * 0.33, top + h * 0.55  -- the cradle: a half circle under the capsule
-    local px, py = cx - r, my
-    for i = 1, 8 do
-        local a = math.pi * i / 8
-        local nx, ny = cx - r * math.cos(a), my + r * math.sin(a)
-        ui.line(c, px, py, nx, ny, thick, color)
-        px, py = nx, ny
-    end
-    ui.line(c, cx, my + r, cx, cy + s * 0.5, thick, color)
-    ui.line(c, cx - s * 0.2, cy + s * 0.5, cx + s * 0.2, cy + s * 0.5, thick, color)
+    local ux, uy = -0.5, 0.866              -- along the handle, from the head (30 degrees)
+    local px, py = 0.866, 0.5               -- across it
+    local hx, hy, r = cx + s * 0.12, cy - s * 0.24, s * 0.27
+    local sx, sy = hx + ux * r * 0.8, hy + uy * r * 0.8      -- where the handle starts (under the head)
+    local ex, ey = sx + ux * s * 0.5, sy + uy * s * 0.5      -- and ends
+    local w1, w2 = s * 0.32, s * 0.16
+    ui.poly(c, color, 0,
+        sx + px * w1 / 2, sy + py * w1 / 2, ex + px * w2 / 2, ey + py * w2 / 2,
+        ex - px * w2 / 2, ey - py * w2 / 2, sx - px * w1 / 2, sy - py * w1 / 2)
+    ui.circle(c, ex, ey, w2 / 2, color)
+    ui.circle(c, hx, hy, r, color)
+    -- the collar where the head meets the handle, in the background's colour
+    local bx, by = hx + ux * r * 1.02, hy + uy * r * 1.02
+    ui.line(c, bx - px * w1 * 0.6, by - py * w1 * 0.6, bx + px * w1 * 0.6, by + py * w1 * 0.6,
+        math.max(2, s * 0.06), "000000")
 end
 
 function ui.icon_repeat(c, cx, cy, s, color, one)
