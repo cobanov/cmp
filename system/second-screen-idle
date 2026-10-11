@@ -1,0 +1,10 @@
+#!/bin/sh
+# second-screen-idle SECOND MAIN
+# Stands in for ROCKNIX's "output SECOND power off" that sway runs on every
+# config reload (EmulationStation maps a new window after each game or app):
+# turn the second screen off only when nothing is shown on it, so a video or
+# the music player moved down there does not flash off and on.
+second=$1 main=$2
+swaymsg '[app_id="emulationstation"]' focus output "$main" >/dev/null 2>&1
+swaymsg -t get_tree | grep -q -E '"app_id": "(handheld-bottom|handheld-remote|lowerdeck)"' && exit 0
+swaymsg output "$second" power off >/dev/null
