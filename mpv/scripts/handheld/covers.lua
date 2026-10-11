@@ -172,6 +172,7 @@ end
 -- Path of the album's picture px pixels wide, or nil while it is being made
 -- (on_ready is called then) or when the album has none.
 function C.get(a, px)
+    if a.radio then return nil end  -- (stations have no pictures)
     local k = a.dir .. "@" .. px
     if known[k] ~= nil then return known[k] or nil end
     local path

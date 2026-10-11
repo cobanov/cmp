@@ -222,6 +222,17 @@ function ui.icon_battery(c, x, y, w, h, pct, charging)
     if inner >= 1 then ui.rect(c, x + 4, y + 4, inner, h - 8, h * 0.12, color) end
 end
 
+-- A radio of width s: a body with a speaker and a dial, and an antenna.
+function ui.icon_radio(c, cx, cy, s, color)
+    local w, h = s, s * 0.62
+    local x, y = cx - w / 2, cy - h / 2 + s * 0.08
+    ui.line(c, x + w * 0.22, y, x + w * 0.62, y - s * 0.28, s * 0.04, color)
+    ui.rect(c, x, y, w, h, s * 0.08, color)
+    ui.circle(c, x + w * 0.32, y + h * 0.55, h * 0.3, ui.PANEL)
+    ui.rect(c, x + w * 0.6, y + h * 0.22, w * 0.28, h * 0.12, 2, ui.PANEL)
+    ui.rect(c, x + w * 0.6, y + h * 0.48, w * 0.28, h * 0.12, 2, ui.PANEL)
+end
+
 -- A crescent moon of radius r: a circle with a circle of the background cut out.
 function ui.icon_moon(c, cx, cy, r, color, bg)
     ui.circle(c, cx, cy, r, color)

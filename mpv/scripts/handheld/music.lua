@@ -21,6 +21,8 @@ local search = require "search"
 local scroll = require "marquee"
 local eq = require "eq"
 local crossfade = require "crossfade"
+local lyrics = require "lyrics"
+local radio = require "radio"
 
 local M = {}
 
@@ -34,7 +36,7 @@ local SETTINGS_FILE = "/storage/.config/mpv/handheld-music-settings.json"
 
 -- view: the album browser as a "list" or "flow" (Cover Flow)
 -- stay_on: keep the player on the second screen lit, or let it turn off when idle
-M.settings = { view = "flow", stay_on = true }
+M.settings = { view = "flow", stay_on = true, lyrics = true }
 
 local function load_settings()
     local f = io.open(SETTINGS_FILE, "r")
@@ -46,6 +48,9 @@ local function load_settings()
     if type(data.stay_on) == "boolean" then M.settings.stay_on = data.stay_on end
     if type(data.eq) == "table" then M.settings.eq = data.eq end
     if tonumber(data.crossfade) then M.settings.crossfade = tonumber(data.crossfade) end
+    if data.replaygain == "track" or data.replaygain == "album" then M.settings.replaygain = data.replaygain end
+    if tonumber(data.speed) then M.settings.speed = tonumber(data.speed) end
+    if type(data.lyrics) == "boolean" then M.settings.lyrics = data.lyrics end
 end
 
 local function save_settings()
@@ -62,6 +67,19 @@ eq.load(M.settings.eq)
 eq.apply()
 crossfade.set(M.settings.crossfade or 0)
 local CROSSFADE = { 0, 2, 4, 6, 8, 10 }
+
+-- ReplayGain: tracks (or whole albums) at one loudness, from their tags
+-- (R128 in Opus); files without tags play as they are.
+local REPLAYGAIN = { { "no", "Off" }, { "track", "Track" }, { "album", "Album" } }
+mp.set_property("replaygain", M.settings.replaygain or "no")
+
+-- Speed, for audiobooks and podcasts (the pitch stays as it is).
+local SPEEDS = { 0.75, 1, 1.25, 1.5, 1.75, 2 }
+mp.set_property_number("speed", M.settings.speed or 1)
+
+local function speed_label(v)
+    return (string.format("%.2f", v):gsub("0+$", ""):gsub("%.$", "")) .. "×"
+end
 
 M.shuffle, M.repeat_mode = false, 1
 
@@ -194,8 +212,11 @@ function M.check_library(changed)
     end)
 end
 
+radio.setup(ROOT)
+
 local function album_of(path)
     if not path then return nil end
+    if radio.is_stream(path) then return radio.album() end
     local a = describe((utils.split_path(path)))
     a.tracks = { path }
     return a
@@ -204,6 +225,7 @@ end
 -- What to call a track: its title tag, else its file name. With the album
 -- given, its tags are read (in the background) if they are not known yet.
 function M.track_name(path, album)
+    if radio.is_stream(path) then return radio.name(path) end
     if album then tags.want(album) end
     return tags.title(path) or track_title(path)
 end
@@ -454,6 +476,27 @@ M.TABS = {
               crossfade.set(M.settings.crossfade)
               save_settings()
           end },
+        { key = "replaygain", label = "ReplayGain", kind = "choice",
+          value = function()
+              for _, r in ipairs(REPLAYGAIN) do if r[1] == (M.settings.replaygain or "no") then return r[2] end end
+              return "Off"
+          end,
+          change = function(dir)
+              local i = 1
+              for k, r in ipairs(REPLAYGAIN) do if r[1] == (M.settings.replaygain or "no") then i = k end end
+              M.settings.replaygain = REPLAYGAIN[(i - 1 + (dir or 1)) % #REPLAYGAIN + 1][1]
+              mp.set_property("replaygain", M.settings.replaygain)
+              save_settings()
+          end },
+        { key = "speed", label = "Speed", kind = "choice",
+          value = function() return speed_label(mp.get_property_number("speed", 1)) end,
+          change = function(dir)
+              local now, i = mp.get_property_number("speed", 1), 2
+              for k, v in ipairs(SPEEDS) do if math.abs(v - now) < 0.01 then i = k end end
+              M.settings.speed = SPEEDS[math.max(1, math.min(#SPEEDS, i + (dir or 1)))]
+              mp.set_property_number("speed", M.settings.speed)
+              save_settings()
+          end },
         { key = "eq", label = "Equalizer", kind = "choice", value = eq.name,
           change = function(dir) eq.step(dir); M.settings.eq = eq.save(); save_settings() end },
         { key = "eq-edit", label = "Edit equalizer", kind = "page", pad_only = true },
@@ -487,13 +530,14 @@ function M.state()
     local meta = mp.get_property_native("metadata") or {}
     local function tag(k) return meta[k] or meta[k:upper()] or meta[k:sub(1, 1):upper() .. k:sub(2)] end
     local pos, count = mp.get_property_number("playlist-pos", -1), mp.get_property_number("playlist-count", 0)
-    return {
+    local state = {
         kind = "music",
         path = path,
         album_dir = album and album.dir,  -- the album folder (above any disc folder)
         title = path and (tag("title") or track_title(path)) or "Nothing playing",
         artist = path and (tag("artist") or (album and album.artist) or "") or "",
         album = path and (tag("album") or (album and album.title) or "") or "",
+        live = radio.is_stream(path) or nil,
         cover = album and covers.get(album, 400) or nil,  -- for the 1024x768 touch screen
         pos = mp.get_property_number("time-pos", 0),
         dur = mp.get_property_number("duration", 0),
@@ -505,6 +549,14 @@ function M.state()
         keep_on = M.settings.stay_on,
         settings = S.snapshot(M.TABS),
     }
+    -- a station: its name, and the song it announces (if it does)
+    if state.live then
+        local station = radio.name(path)
+        state.title = meta["icy-title"] or station
+        state.artist = meta["icy-title"] and station or "Internet radio"
+        state.album = "Radio"
+    end
+    return state
 end
 
 -- Session: the queue survives quitting, and moves with the background player.
@@ -558,11 +610,81 @@ function M.restore_session()
     return data.paths[data.index or 1]
 end
 
+-- a station that cannot be reached (no network, gone) says so
+mp.register_event("end-file", function(e)
+    if e.reason == "error" and M.note then
+        local list = mp.get_property_native("playlist") or {}
+        local entry
+        for _, it in ipairs(list) do if it.id == e.playlist_entry_id then entry = it.filename end end
+        if entry and radio.is_stream(entry) then M.note("Can't reach " .. radio.name(entry)) end
+    end
+end)
+
+-- Bookmarks and long tracks --------------------------------------------------
+-- For audiobooks and long mixes: a track of 20 minutes or more remembers
+-- where it was left, and starts there again next time; bookmarks (Y in the
+-- player) mark a place to come back to.
+
+local MARKS = "/storage/.config/mpv/handheld-bookmarks.json"
+local LONG = 20 * 60
+local marks = { list = {}, resume = {} }  -- list: newest first { path, pos }; resume: path -> pos
+do
+    local f = io.open(MARKS, "r")
+    local data = f and utils.parse_json(f:read("*a") or "")
+    if f then f:close() end
+    if type(data) == "table" then
+        marks.list = type(data.list) == "table" and data.list or {}
+        marks.resume = type(data.resume) == "table" and data.resume or {}
+    end
+end
+local function save_marks()
+    local f = io.open(MARKS, "w")
+    if f then f:write(utils.format_json(marks)); f:close() end
+end
+
+function M.bookmarks() return marks.list end
+
+function M.add_bookmark()
+    local path, pos = mp.get_property("path"), mp.get_property_number("time-pos")
+    if not path or not pos or path:match("^%a+://") then return nil end
+    table.insert(marks.list, 1, { path = path, pos = pos })
+    while #marks.list > 20 do table.remove(marks.list) end
+    save_marks()
+    return "Bookmark at " .. ui.fmt_time(pos)
+end
+
+function M.clear_bookmarks() marks.list = {}; save_marks(); return "Bookmarks cleared" end
+
+-- where a long track was left: kept every 15 s while it plays, and when it ends
+local function keep_place(finished)
+    local path, dur = mp.get_property("path"), mp.get_property_number("duration")
+    if not path or not dur or dur < LONG then return end
+    local pos = mp.get_property_number("time-pos", 0)
+    local was = marks.resume[path]
+    if finished or pos > dur - 30 then marks.resume[path] = nil
+    elseif pos > 30 then marks.resume[path] = math.floor(pos) end
+    if marks.resume[path] ~= was then save_marks() end
+end
+mp.add_periodic_timer(15, function() if not mp.get_property_native("pause") then keep_place() end end)
+mp.register_event("end-file", function(e) keep_place(e.reason == "eof") end)
+mp.register_event("shutdown", function() keep_place() end)
+
+-- Play a track of a list from a place in it (a bookmark).
+function M.play_at(paths, index, pos)
+    M.play_list(paths, index)
+    pending = { path = paths[index], pos = pos }
+end
+
 -- The saved position belongs to one track: if that one is gone (and another
--- loads instead), it is not applied anywhere else.
+-- loads instead), it is not applied anywhere else. A long track with no
+-- such place to go to starts where it was left last time.
 mp.register_event("file-loaded", function()
-    if pending and pending.pos and pending.pos > 1 and mp.get_property("path") == pending.path then
+    local path = mp.get_property("path")
+    if pending and pending.pos and pending.pos > 1 and path == pending.path and not radio.is_stream(path) then
         mp.commandv("seek", pending.pos, "absolute")
+    elseif not pending and path and marks.resume[path] and mp.get_property_number("time-pos", 0) < 5 then
+        mp.commandv("seek", marks.resume[path], "absolute")
+        if M.note then M.note("Resumed at " .. ui.fmt_time(marks.resume[path])) end
     end
     pending = nil
 end)
@@ -668,6 +790,7 @@ function M.app()
     local function full_album(path)
         local a = album_of(path)
         if not a then return nil end
+        if a.radio then return a end
         for _, b in ipairs(albums) do if b.dir == a.dir then return b end end
         return nil
     end
@@ -702,11 +825,12 @@ function M.app()
 
     -- a picture, or a dark tile with a note while there is none (yet)
     local function picture(c, id, a, x, y, size, radius)
-        local path = a and covers.get(a, ui.px(size))
+        local path = a and not a.radio and covers.get(a, ui.px(size))
         if path then image(id, path, x, y, size)
         else
             ui.rect(c, x, y, size, size, radius, ui.PANEL)
-            ui.text(c, x + size / 2, y + size / 2, "♪", size * 0.42, ui.DIM, 5)
+            if a and a.radio then ui.icon_radio(c, x + size / 2, y + size / 2, size * 0.5, ui.DIM)
+            else ui.text(c, x + size / 2, y + size / 2, "♪", size * 0.42, ui.DIM, 5) end
         end
     end
 
@@ -798,7 +922,9 @@ function M.app()
         if type(text) ~= "string" then return end
         note, note_until = text, mp.get_time() + 1.6
         mp.add_timeout(1.65, function() if mp.get_time() >= note_until then draw() end end)
+        if settled then draw() end
     end
+    M.note = show_note
     local function draw_note(c)
         if not note or mp.get_time() >= note_until then return end
         local w = ui.width(note, 30) + 64
@@ -957,6 +1083,7 @@ function M.app()
 
     -- What is playing, technically: "FLAC · 44.1 kHz · Stereo · 912 kbps"
     -- (the bitrate as mpv measures it each second, so a VBR file moves).
+    local draw_lyrics  -- (just below)
     local CODECS = { mp3float = "MP3", mp3 = "MP3", vorbis = "OGG", opus = "OPUS", flac = "FLAC", aac = "AAC",
                      alac = "ALAC", wmav2 = "WMA", ape = "APE", wavpack = "WV" }
     local function audio_info(room)
@@ -967,6 +1094,8 @@ function M.app()
         local ch = mp.get_property_number("audio-params/channel-count")
         local br = mp.get_property_number("audio-bitrate")
         local parts = { codec }
+        local speed = mp.get_property_number("speed", 1)
+        if math.abs(speed - 1) > 0.01 then table.insert(parts, 1, speed_label(speed)) end
         if rate then parts[#parts + 1] = (rate % 1000 == 0 and string.format("%d kHz", rate / 1000)
                                           or string.format("%.1f kHz", rate / 1000)) end
         local chans = ch == 1 and "Mono" or ch == 2 and "Stereo" or ch and (ch .. " ch")
@@ -982,6 +1111,43 @@ function M.app()
         return table.concat(parts, " · ")
     end
 
+    -- Lyrics where the cover was: the line being sung in the middle, white;
+    -- plain lyrics move along with the song. A redraw is due when the next
+    -- line starts (the player otherwise redraws once a second).
+    local lyrics_timer
+    function draw_lyrics(c, lyr, pos, paused, x, y, w, h)
+        ui.rect(c, x, y, w, h, 22, ui.PANEL)
+        local LINE = 54
+        local rows = math.floor((h - 32) / LINE)
+        local lines = lyr.lines
+        local cur, first = 0, 1
+        if lyr.timed then
+            cur = lyrics.at(lyr, pos)
+            first = math.max(1, math.min(cur - math.floor(rows / 2), #lines - rows + 1))
+        else
+            local dur = mp.get_property_number("duration", 0)
+            local frac = dur > 0 and math.min(1, pos / dur) or 0
+            first = 1 + math.floor(frac * math.max(0, #lines - rows) + 0.5)
+        end
+        local top = y + (h - rows * LINE) / 2 + LINE / 2
+        for i = first, math.min(#lines, first + rows - 1) do
+            local now = i == cur
+            local text = lines[i].text ~= "" and lines[i].text or "♪"
+            local size = now and 34 or 30
+            ui.text(c, x + w / 2, top + (i - first) * LINE, ui.fit_text(text, w - 48, size, now), size,
+                now and ui.WHITE or (lyr.timed and i < cur and ui.DIM or ui.GREY), 5, now)
+        end
+        if lyrics_timer then lyrics_timer:kill(); lyrics_timer = nil end
+        local nxt = lyr.timed and not paused and lyrics.next_time(lyr, pos)
+        if nxt then
+            local speed = mp.get_property_number("speed", 1)
+            lyrics_timer = mp.add_timeout(math.max(0.05, (nxt - pos) / speed + 0.02), function()
+                lyrics_timer = nil
+                if view == "playing" then draw() end
+            end)
+        end
+    end
+
     local function draw_playing(cv)
         local c = cv.lines
         local st = M.state()
@@ -995,7 +1161,9 @@ function M.app()
         local count = mp.get_property_number("playlist-count", 0)
         header(c, "Now playing", count > 0 and string.format("%d / %d", mp.get_property_number("playlist-pos", 0) + 1, count))
         local COVER = cover_size()
-        picture(c, 20, here, COVER_X, COVER_Y, COVER, 22)  -- the album page's overlay: the same picture stays put
+        local lyr = M.settings.lyrics and st.path and lyrics.get(st.path)
+        if lyr then draw_lyrics(c, lyr, st.pos or 0, st.paused, COVER_X, COVER_Y, COVER, COVER)
+        else picture(c, 20, here, COVER_X, COVER_Y, COVER, 22) end  -- the album page's overlay: the same picture stays put
         local x = COVER_X + COVER + 40
         local width = ui.W - x - 44
         ui.text(c, x, 100, ui.fit_text(st.album, width, T_ASIDE), T_ASIDE, ui.GREY, 7)
@@ -1015,16 +1183,21 @@ function M.app()
         local rep = st["repeat"] or "Off"
         ui.icon_shuffle(c, cx[4], cy, 30, st.shuffle and ui.ACCENT or ui.GREY)
         ui.icon_repeat(c, cx[5], cy, 30, rep ~= "Off" and ui.ACCENT or ui.GREY, rep == "One")
-        -- progress
+        -- progress (a station is live: no bar, nothing to seek)
         local by = 384
         local frac = (st.dur or 0) > 0 and math.min(1, (st.pos or 0) / st.dur) or 0
         local on_bar = zone == "progress"
-        ui.rect(c, x, by - 4, width, 8, 4, ui.WHITE, 0xB0)
-        ui.rect(c, x, by - 4, math.max(8, width * frac), 8, 4, ui.ACCENT)
-        if on_bar then ui.ring(c, x + width * frac, by, 22, 4, ui.ACCENT) end
-        ui.circle(c, x + width * frac, by, on_bar and 16 or 12, ui.WHITE)
-        ui.text(c, x, by + 24, ui.fmt_time(st.pos), T_HINT, on_bar and ui.WHITE or ui.GREY, 7)
-        ui.text(c, x + width, by + 24, ui.fmt_time(st.dur), T_HINT, on_bar and ui.WHITE or ui.GREY, 9)
+        if st.live then
+            ui.rect(c, x, by - 20, 92, 40, 20, on_bar and ui.ACCENT or ui.RED)
+            ui.text(c, x + 46, by, "LIVE", 24, ui.WHITE, 5, true)
+        else
+            ui.rect(c, x, by - 4, width, 8, 4, ui.WHITE, 0xB0)
+            ui.rect(c, x, by - 4, math.max(8, width * frac), 8, 4, ui.ACCENT)
+            if on_bar then ui.ring(c, x + width * frac, by, 22, 4, ui.ACCENT) end
+            ui.circle(c, x + width * frac, by, on_bar and 16 or 12, ui.WHITE)
+            ui.text(c, x, by + 24, ui.fmt_time(st.pos), T_HINT, on_bar and ui.WHITE or ui.GREY, 7)
+            ui.text(c, x + width, by + 24, ui.fmt_time(st.dur), T_HINT, on_bar and ui.WHITE or ui.GREY, 9)
+        end
         local info = st.path and audio_info(width - 2 * (ui.width("00:00", T_HINT) + 24))
         if info then ui.text(c, x + width / 2, by + 26, info, 22, ui.DIM, 8) end
         -- the queue: the track before, this one, and the next ones
@@ -1095,8 +1268,9 @@ function M.app()
         draw()
     end
     function M.rescan()
-        covers.reset()  -- pictures and titles added or changed since are read again
+        covers.reset()  -- pictures, titles and lyrics added or changed since are read again
         tags.reset()
+        lyrics.forget()
         reload()
     end
     -- the list from last time is up already; read it again if a folder changed
@@ -1147,6 +1321,7 @@ function M.app()
         if screen_off then scroll.clear() else draw() end
     end)
 
+    local open_bookmarks  -- (below: the options and the bookmarks open each other)
     -- Search: a page of its own; B on an empty search goes back to where it opened.
     local search_back, album_back = "library", "library"
     search.setup({ albums = function() return albums end, names = M.names,
@@ -1155,6 +1330,24 @@ function M.app()
         if view ~= "search" then search_back = view end
         search.open()
         view = "search"
+    end
+
+    -- The bookmarks, newest first: A goes there.
+    function open_bookmarks()
+        local list = {}
+        for i, b in ipairs(M.bookmarks()) do
+            if i > 7 then break end
+            list[#list + 1] = { label = M.track_name(b.path) .. "  ·  " .. ui.fmt_time(b.pos), run = function()
+                local a = full_album(b.path)
+                local paths, index = a and a.tracks or { b.path }, 1
+                for k, p in ipairs(paths) do if p == b.path then index = k end end
+                album = a or album
+                M.play_at(paths, index, b.pos)
+                open_playing()
+            end }
+        end
+        list[#list + 1] = { label = "Clear bookmarks", danger = true, run = M.clear_bookmarks }
+        options.show("Bookmarks", list)
     end
 
     -- The options for what is under the cursor, on each page.
@@ -1170,6 +1363,11 @@ function M.app()
             title = (M.names(a))
             queue_items(a.tracks, "Album")
             add("Shuffle album", function() play(a.tracks, 1, true) end)
+        end
+        if view == "library" then
+            add("Radio", function()
+                album, tr_sel, tr_top, view, album_back = radio.album(), 1, 1, "album", "library"
+            end)
         elseif view == "album" then
             local path = album.tracks[tr_sel]
             title = M.track_name(path, album)
@@ -1198,7 +1396,15 @@ function M.app()
                 end)
             else
                 title = "Now playing"
+                if mp.get_property("path") then add("Add bookmark", M.add_bookmark) end
+                if lyrics.get(mp.get_property("path")) then
+                    add(M.settings.lyrics and "Hide lyrics" or "Show lyrics", function()
+                        M.settings.lyrics = not M.settings.lyrics
+                        save_settings()
+                    end)
+                end
             end
+            if #M.bookmarks() > 0 then add("Bookmarks", function() open_bookmarks() end) end
             if count > 1 then
                 list[#list + 1] = { label = "Clear queue", danger = true, run = function()
                     M.queue_clear(); queue_sel = nil; return "Queue cleared"

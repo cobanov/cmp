@@ -34,7 +34,8 @@ CMP replaces the music players that ship with handheld firmwares, which were nev
 - **One meaning per button.** A chooses, B goes back, X jumps to the player, L1 R1 change the track, L2 R2 seek. The hints at the bottom always show the buttons in the same order.
 - **Picks up where you left it.** The queue, the track and the position are saved when you quit.
 - **In your pocket, lid shut.** While music plays, closing the lid, the power button or Screen off in the options turns the screen off and locks the buttons instead of putting the handheld to sleep. Open the lid, press power or hold Y to come back. When the music stops with the screen off, the handheld sleeps as usual. Pulling the headphones out pauses the music.
-- **Sound your way.** A 10-band equalizer with presets, crossfade between tracks, and the format, sample rate and bitrate of what is playing.
+- **Lyrics, radio and audiobooks.** Timed lyrics from `.lrc` files follow the song, internet stations play from a simple `radio.m3u`, and long tracks remember where you stopped, with bookmarks and a speed control.
+- **Sound your way.** A 10-band equalizer with presets, ReplayGain, crossfade between tracks, and the format, sample rate and bitrate of what is playing.
 - **Sleep timer, clock and battery.** Stop the music after 15 to 90 minutes or at the end of the track, with a gentle fade. The clock and the battery (the same estimate EmulationStation shows) sit at the top of every page.
 - **Music under your games.** On dual-screen devices, L1 + R1 (or "Play in background") moves the queue to the second screen, where it keeps playing with touch controls while you play on the main one.
 

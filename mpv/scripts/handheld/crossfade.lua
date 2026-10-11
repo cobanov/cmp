@@ -70,9 +70,12 @@ end
 local function make(now)
     local want, id, path = nil, nil, nil
     local dur = mp.get_property_number("duration")
-    if D > 0 and X.allow() and dur and dur > 2 * D + 1 and mp.get_property("loop-file") == "no" then
+    -- (a station reports a "duration" too: only files are mixed)
+    local here = mp.get_property("path") or ""
+    if D > 0 and X.allow() and dur and dur > 2 * D + 1 and here:sub(1, 1) == "/" and mp.get_property("loop-file") == "no" then
         id, path = next_entry()
-        if id and path and id ~= mp.get_property_number("playlist/" .. mp.get_property_number("playlist-pos", 0) .. "/id") then
+        -- (a station never ends, and amovie is not for network addresses)
+        if id and path and path:sub(1, 1) == "/" and id ~= mp.get_property_number("playlist/" .. mp.get_property_number("playlist-pos", 0) .. "/id") then
             want = graph(dur - D, path)
         end
     end

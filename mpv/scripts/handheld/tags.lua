@@ -62,7 +62,7 @@ end
 
 -- Make sure the album's titles are known or on their way.
 function T.want(a)
-    if not a or not a.dir or not a.tracks or seen[a.dir] then return end
+    if not a or not a.dir or not a.tracks or a.radio or seen[a.dir] then return end
     seen[a.dir] = true
     local f = io.open(file_of(a.dir), "r")
     local data = f and utils.parse_json(f:read("*a") or "")
