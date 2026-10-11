@@ -20,6 +20,7 @@ local options = require "options"
 local search = require "search"
 local scroll = require "marquee"
 local eq = require "eq"
+local crossfade = require "crossfade"
 
 local M = {}
 
@@ -44,6 +45,7 @@ local function load_settings()
     if data.view == "flow" or data.view == "list" then M.settings.view = data.view end
     if type(data.stay_on) == "boolean" then M.settings.stay_on = data.stay_on end
     if type(data.eq) == "table" then M.settings.eq = data.eq end
+    if tonumber(data.crossfade) then M.settings.crossfade = tonumber(data.crossfade) end
 end
 
 local function save_settings()
@@ -58,6 +60,8 @@ if not utils.file_info("/storage/.config/mpv") then os.execute("mkdir -p /storag
 load_settings()
 eq.load(M.settings.eq)
 eq.apply()
+crossfade.set(M.settings.crossfade or 0)
+local CROSSFADE = { 0, 2, 4, 6, 8, 10 }
 
 M.shuffle, M.repeat_mode = false, 1
 
@@ -218,6 +222,7 @@ end
 local function apply_repeat()
     mp.set_property("loop-playlist", M.repeat_mode == 2 and "inf" or "no")
     mp.set_property("loop-file", M.repeat_mode == 3 and "inf" or "no")
+    crossfade.refresh()  -- Repeat decides what follows (and One plays no next track)
 end
 
 -- Start a track of a new queue. Not playlist-play-index: right after "stop"
@@ -407,6 +412,9 @@ mp.register_event("end-file", function(e)
     end
 end)
 
+-- no mix into a track that will not play: "End of track" pauses there
+crossfade.allow = function() return SLEEP[M.sleep.choice] ~= "track" end
+
 local function sleep_label()
     local v = SLEEP[M.sleep.choice]
     if v == "track" then return "End of track" end
@@ -436,7 +444,16 @@ M.TABS = {
         { key = "repeat", label = "Repeat", kind = "choice",
           value = function() return REPEAT[M.repeat_mode] end, change = M.cycle_repeat },
         { key = "sleep", label = "Sleep timer", kind = "choice", value = sleep_label,
-          change = function(dir) set_sleep((M.sleep.choice - 1 + (dir or 1)) % #SLEEP + 1) end },
+          change = function(dir) set_sleep((M.sleep.choice - 1 + (dir or 1)) % #SLEEP + 1); crossfade.refresh() end },
+        { key = "crossfade", label = "Crossfade", kind = "choice",
+          value = function() return crossfade.seconds() > 0 and (crossfade.seconds() .. " s") or "Off" end,
+          change = function(dir)
+              local i = 1
+              for k, v in ipairs(CROSSFADE) do if v == crossfade.seconds() then i = k end end
+              M.settings.crossfade = CROSSFADE[(i - 1 + (dir or 1)) % #CROSSFADE + 1]
+              crossfade.set(M.settings.crossfade)
+              save_settings()
+          end },
         { key = "eq", label = "Equalizer", kind = "choice", value = eq.name,
           change = function(dir) eq.step(dir); M.settings.eq = eq.save(); save_settings() end },
         { key = "eq-edit", label = "Edit equalizer", kind = "page", pad_only = true },
