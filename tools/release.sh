@@ -1,9 +1,9 @@
 #!/bin/sh
 # Cut a release:  tools/release.sh 0.2.0
 # Before running: the version is set in mpv/scripts/handheld/settings.lua
-# (S.ABOUT.version, shown on the About page), CHANGELOG.md has a
-# "## [0.2.0] - date" section, everything is committed on main, and gh is
-# logged in. Tags v0.2.0, pushes, and publishes a GitHub release with the
+# (S.ABOUT.version, shown on the About page; "X.Y.Z-dev" between releases),
+# CHANGELOG.md's "## [Unreleased]" section is renamed "## [0.2.0] - date",
+# everything is committed on main, and gh is logged in. Tags v0.2.0, pushes, and publishes a GitHub release with the
 # CHANGELOG section as notes and cmp-0.2.0.tar.gz (what install.sh needs).
 set -eu
 v=${1:?usage: tools/release.sh VERSION}
