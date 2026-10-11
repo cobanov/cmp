@@ -6,6 +6,9 @@ All notable changes to CMP. The format follows [Keep a Changelog](https://keepac
 
 ### Added
 
+- **Options on Y:** every page has an options panel: play an album or song next, add it to the queue, shuffle an album, search, and turn the screen off. In the player's queue: play next, move up or down, remove, clear the queue.
+- **Search** the library from the pad: a keyboard at the left, albums and songs that match at the right, updated with every letter. Case, accents and Turkish letters do not matter ("kotu" finds "Kötü").
+
 - **Headphones out, music paused:** pulling the headphones out pauses the player (also the background player on dual-screen devices) instead of carrying on from the speaker.
 - **Jump by letter** in a long library: ↑↓ in Cover Flow, ←→ in the album list. The letter shows big for a moment. Holding a direction also speeds up after a second.
 - **Track names from the tags** on the album page, in the queue and in the touch library. Until an album's tags are read (once, in the background, then kept) the file names show.
@@ -18,7 +21,7 @@ All notable changes to CMP. The format follows [Keep a Changelog](https://keepac
 
 ### Added
 
-- **Screen off while music plays.** Y or the power button turns the screen off and locks the buttons; the power button or holding Y for a second turns it back on. On a clamshell handheld such as the Anbernic RG SP, closing the lid does the same instead of putting the device to sleep, and opening it brings the screen back. When the music stops with the screen off (the sleep timer, the end of the queue), the handheld goes to sleep as before. Paused, the power button and the lid work as they always did.
+- **Screen off while music plays.** The power button (or Screen off in the options) turns the screen off and locks the buttons; the power button or holding Y for a second turns it back on. On a clamshell handheld such as the Anbernic RG SP, closing the lid does the same instead of putting the device to sleep, and opening it brings the screen back. When the music stops with the screen off (the sleep timer, the end of the queue), the handheld goes to sleep as before. Paused, the power button and the lid work as they always did.
 - **Sleep timer** in Settings: 15, 30, 45, 60 or 90 minutes, or the end of the track. The music fades out over 10 seconds. While it runs, a moon and the minutes left show at the top.
 - **Clock and battery** at the top right of every page. The level is ROCKNIX's batteryplus estimate, the same EmulationStation shows, with the fuel gauge as a fallback; green while charging, red when low.
 

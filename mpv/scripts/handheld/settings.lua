@@ -133,7 +133,7 @@ S.GUIDE = {
         { "↑ ↓", "Move; in Cover Flow, jump by letter" },
         { "← →", "Browse; in the album list, jump by letter" },
         { "L1 R1", "Previous / next track" },
-        { "Y", "Screen off, buttons locked; hold Y to unlock" },
+        { "Y", "Options: search, queue, screen off" },
         { "L1 + R1", "Together: play in the background (two screens)" },
         { "L2 R2", "Back / forward 10 s" },
         { "Select", "Settings" },

@@ -16,6 +16,8 @@ local ui = require "ui"
 local S = require "settings"
 local covers = require "covers"
 local tags = require "tags"
+local options = require "options"
+local search = require "search"
 
 local M = {}
 
@@ -269,6 +271,66 @@ local function reorder(want)
             end
         end
     end
+end
+
+-- Queue editing ------------------------------------------------------------
+
+local function playlist_paths()
+    local out = {}
+    for i, e in ipairs(mp.get_property_native("playlist") or {}) do out[i] = e.filename end
+    return out
+end
+
+-- the order Shuffle off goes back to follows the edits
+local function note_order(added, removed)
+    if not M.shuffle then M.order = playlist_paths(); return end
+    for _, p in ipairs(added or {}) do M.order[#M.order + 1] = p end
+    if removed then
+        for i, p in ipairs(M.order) do if p == removed then table.remove(M.order, i); break end end
+    end
+end
+
+-- Add tracks right after the one playing (next) or at the end of the queue.
+-- With nothing playing, they start playing.
+function M.enqueue(paths, next)
+    if #paths == 0 then return end
+    if not mp.get_property("path") then
+        local count = mp.get_property_number("playlist-count", 0)
+        if count == 0 then M.play_list(paths, 1); return end
+        for _, p in ipairs(paths) do mp.commandv("loadfile", p, "append") end
+        mp.set_property_number("playlist-pos", count)  -- (the queue had played to its end)
+        mp.set_property_native("pause", false)
+    elseif next then
+        local at = mp.get_property_number("playlist-pos", 0) + 1
+        for i, p in ipairs(paths) do mp.commandv("loadfile", p, "insert-at", at + i - 1) end
+    else
+        for _, p in ipairs(paths) do mp.commandv("loadfile", p, "append") end
+    end
+    note_order(paths)
+end
+
+-- index: 0-based, as mpv counts
+function M.queue_remove(index)
+    local list = playlist_paths()
+    if not list[index + 1] then return end
+    mp.commandv("playlist-remove", index)
+    note_order(nil, list[index + 1])
+end
+
+-- Move an entry: to = the index it ends up at.
+function M.queue_move(index, to)
+    local count = mp.get_property_number("playlist-count", 0)
+    if to < 0 or to >= count or to == index then return end
+    -- mpv puts the entry in front of the one at its second index
+    mp.commandv("playlist-move", index, to > index and to + 1 or to)
+    note_order()
+end
+
+-- Everything but the track playing.
+function M.queue_clear()
+    mp.command("playlist-clear")
+    note_order()
+    if M.shuffle then M.order = playlist_paths() end
 end
 
 function M.set_shuffle(on)
@@ -699,12 +761,24 @@ function M.app()
         if sub then ui.text(c, 44 + ui.width(shown, T_TITLE, true) + 24, 36, aside, T_ASIDE, ui.GREY, 7) end
     end
 
-    -- Y turns the screen off while music plays (the hub does it, see lock())
+    -- Y opens the options on every page (see open_options)
     local function footer(c, hints)
-        if mp.get_property("path") and not mp.get_property_native("pause") then
-            hints[#hints + 1] = { "Y", "Screen off" }
-        end
+        hints[#hints + 1] = { "Y", "Options" }
         ui.hints(c, 44, 726, hints, T_HINT)
+    end
+
+    -- A short note over the page ("Added to the queue")
+    local note, note_until = nil, 0
+    local function show_note(text)
+        if type(text) ~= "string" then return end
+        note, note_until = text, mp.get_time() + 1.6
+        mp.add_timeout(1.65, function() if mp.get_time() >= note_until then draw() end end)
+    end
+    local function draw_note(c)
+        if not note or mp.get_time() >= note_until then return end
+        local w = ui.width(note, 30) + 64
+        ui.rect(c, (ui.W - w) / 2, 640, w, 60, 30, ui.ACCENT)
+        ui.text(c, ui.W / 2, 670, note, 30, ui.WHITE, 5, true)
     end
 
     local function playing_dir()
@@ -932,8 +1006,13 @@ function M.app()
         if not menu.open then
             if view == "album" then draw_album(cv)
             elseif view == "playing" then draw_playing(cv)
-            elseif M.settings.view == "flow" then draw_flow(cv)
+            elseif view == "search" then search.draw(cv.lines, header, footer)
+            elseif M.settings.view == "flow" then
+                -- (the covers would draw over the options panel)
+                if options.open then draw_library(cv) else draw_flow(cv) end
             else draw_library(cv) end
+            draw_note(cv.lines)
+            if options.open then options.draw(cv.lines) end
         end
         if not flow_now then flow.hide() end
         finish_images()
@@ -992,7 +1071,7 @@ function M.app()
     end
 
     -- One meaning per button everywhere: A chooses, B goes back, X jumps to
-    -- the player; Y is kept free for later.
+    -- the player, Y opens the options.
     local function to_player() if mp.get_property("path") then open_playing() end end
 
     -- Screen off and the buttons locked: the hub reads the pad, the lid and
@@ -1005,6 +1084,75 @@ function M.app()
         screen_off = on == "off"
         if not screen_off then draw() end
     end)
+
+    -- Search: a page of its own; B on an empty search goes back to where it opened.
+    local search_back, album_back = "library", "library"
+    search.setup({ albums = function() return albums end, names = M.names,
+                   track_name = function(path) return M.track_name(path) end })
+    local function open_search()
+        if view ~= "search" then search_back = view end
+        search.open()
+        view = "search"
+    end
+
+    -- The options for what is under the cursor, on each page.
+    local function open_options()
+        local list, title = {}, ""
+        local function add(label, run) list[#list + 1] = { label = label, run = run } end
+        local function queue_items(paths, what)
+            add("Play next", function() M.enqueue(paths, true); return what .. " plays next" end)
+            add("Add to queue", function() M.enqueue(paths, false); return what .. " added to the queue" end)
+        end
+        if view == "library" and albums[lib_sel] then
+            local a = albums[lib_sel]
+            title = (M.names(a))
+            queue_items(a.tracks, "Album")
+            add("Shuffle album", function() play(a.tracks, 1, true) end)
+        elseif view == "album" then
+            local path = album.tracks[tr_sel]
+            title = M.track_name(path, album)
+            queue_items({ path }, "Song")
+            add("Add album to queue", function() M.enqueue(album.tracks, false); return "Album added to the queue" end)
+        elseif view == "playing" then
+            local count = mp.get_property_number("playlist-count", 0)
+            local cur = mp.get_property_number("playlist-pos", 0)
+            local entry = zone == "queue" and queue_sel and (mp.get_property_native("playlist") or {})[queue_sel + 1]
+            if entry then
+                local i = queue_sel
+                title = M.track_name(entry.filename)
+                if i ~= cur and i ~= cur + 1 then
+                    add("Play next", function()
+                        M.queue_move(i, i > cur and cur + 1 or cur)
+                        queue_sel = nil
+                        return "Plays next"
+                    end)
+                end
+                if i > 0 then add("Move up", function() M.queue_move(i, i - 1); queue_sel = i - 1 end) end
+                if i < count - 1 then add("Move down", function() M.queue_move(i, i + 1); queue_sel = i + 1 end) end
+                add("Remove from queue", function()
+                    M.queue_remove(i)
+                    queue_sel = math.max(0, math.min(i, mp.get_property_number("playlist-count", 1) - 1))
+                    return "Removed"
+                end)
+            else
+                title = "Now playing"
+            end
+            if count > 1 then
+                list[#list + 1] = { label = "Clear queue", danger = true, run = function()
+                    M.queue_clear(); queue_sel = nil; return "Queue cleared"
+                end }
+            end
+        elseif view == "search" then
+            local e = search.selected()
+            if e then
+                title = e.title
+                queue_items(e.track and { e.album.tracks[e.track] } or e.album.tracks, e.track and "Song" or "Album")
+            end
+        end
+        if view ~= "search" then add("Search", open_search) end
+        if mp.get_property("path") and not mp.get_property_native("pause") then add("Screen off", lock) end
+        options.show(title, list)
+    end
 
     local step = 1  -- how far a held direction moves (set by the key handler)
     local keys = {
@@ -1023,7 +1171,7 @@ function M.app()
                 if M.settings.view == "flow" then lib_sel = math.min(#albums, lib_sel + step) else jump_letter(1) end
             end,
             a = function()
-                if albums[lib_sel] then album, tr_sel, tr_top, view = albums[lib_sel], 1, 1, "album" end
+                if albums[lib_sel] then album, tr_sel, tr_top, view, album_back = albums[lib_sel], 1, 1, "album", "library" end
             end,
             x = to_player,
         },
@@ -1040,7 +1188,7 @@ function M.app()
                 else play(album.tracks, tr_sel) end
             end,
             x = to_player,
-            b = function() view = "library" end,
+            b = function() view = album_back end,
         },
         playing = {
             left = function()
@@ -1092,6 +1240,13 @@ function M.app()
         if key == "start" then mp.command("quit"); return end
         key = ({ lstick_up = "up", lstick_down = "down", lstick_left = "left", lstick_right = "right" })[key] or key
         if menu.key(key) then return end
+        if options.open then
+            if kind == "repeat" and NO_REPEAT[key] then return end
+            local _, said = options.key(key)
+            show_note(said)
+            draw()
+            return
+        end
         if key == "select" then menu.toggle(); return end
         if key == "l1+r1" then  -- both shoulders: carry on in the background, on the second screen
             if M.two_screens and mp.get_property("path") then M.to_bottom() end
@@ -1101,7 +1256,23 @@ function M.app()
         if key == "r1" then M.action("next"); return end
         if key == "l2" then M.action("seek", -10); return end
         if key == "r2" then M.action("seek", 10); return end
-        if key == "y" then lock(); return end
+        if key == "y" then
+            if kind ~= "repeat" then open_options(); draw() end
+            return
+        end
+        if view == "search" then
+            -- held: the arrows and B (deleting) repeat, but B never leaves the search that way
+            if kind == "repeat" and (NO_REPEAT[key] and key ~= "b" or key == "b" and search.query == "") then return end
+            if key == "x" then to_player()
+            else
+                local r = search.key(key)
+                if r == "close" then view = search_back
+                elseif type(r) == "table" and r.track then album = r.album; play(r.album.tracks, r.track)
+                elseif type(r) == "table" then album, tr_sel, tr_top, view, album_back = r.album, 1, 1, "album", "search" end
+            end
+            draw()
+            return
+        end
         if kind == "repeat" and NO_REPEAT[key] then return end
         if kind == "repeat" and key == held then repeats = repeats + 1 else held, repeats = key, 0 end
         step = repeats < 6 and 1 or repeats < 16 and 3 or 8
