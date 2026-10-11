@@ -18,6 +18,7 @@ local covers = require "covers"
 local tags = require "tags"
 local options = require "options"
 local search = require "search"
+local scroll = require "marquee"
 
 local M = {}
 
@@ -841,7 +842,8 @@ function M.app()
             if i == lib_sel then ui.rect(c, tx - 16, y, ui.W - tx - 8, THUMB + 8, 20, ui.RAISED) end
             picture(c, i - lib_top + 1, a, 44, y + 4, THUMB, 14)
             local room = ui.W - tx - 110  -- the track count sits at the right
-            ui.text(c, tx, y + 14, ui.fit_text(title, room, T_ROW, true), T_ROW, playing and ui.ACCENT or ui.WHITE, 7, true)
+            if i == lib_sel then scroll.line(c, tx, y + 14, room, title, T_ROW, playing and ui.ACCENT or ui.WHITE, 7, true)
+            else ui.text(c, tx, y + 14, ui.fit_text(title, room, T_ROW, true), T_ROW, playing and ui.ACCENT or ui.WHITE, 7, true) end
             ui.text(c, tx, y + 60, ui.fit_text(artist, room, T_SUB), T_SUB, ui.GREY, 7)
             ui.text(c, ui.W - 44, y + 4 + THUMB / 2, playing and "♪" or tostring(#a.tracks), T_ASIDE,
                 playing and ui.ACCENT or ui.DIM, 6)
@@ -873,7 +875,9 @@ function M.app()
         local title, artist = M.names(a)
         local playing = a.dir == playing_dir()
         -- under the strip (44 + 400 + reflection): the title, then artist and track count on one line
-        ui.text(c, ui.W / 2, 582, ui.fit_text(title, ui.W - 120, T_TITLE, true), T_TITLE, playing and ui.ACCENT or ui.WHITE, 8, true)
+        if ui.width(title, T_TITLE, true) <= ui.W - 120 then
+            ui.text(c, ui.W / 2, 582, title, T_TITLE, playing and ui.ACCENT or ui.WHITE, 8, true)
+        else scroll.line(c, 60, 582, ui.W - 120, title, T_TITLE, playing and ui.ACCENT or ui.WHITE, 7, true) end
         local more = playing and "♪ Playing" or (#a.tracks .. " tracks")
         ui.text(c, ui.W / 2, 640, ui.fit_text(artist, ui.W - 360, T_SUB) .. "  ·  " .. more, T_SUB,
             playing and ui.ACCENT or ui.GREY, 8)
@@ -906,8 +910,10 @@ function M.app()
             local T_TRACK = 36  -- the track names, a little bigger than other second lines
             ui.text(c, x + 8, mid, is_playing and "♪" or string.format("%d", i), 28,
                 is_playing and ui.ACCENT or ui.DIM, 4)
-            ui.text(c, x + 60, mid, ui.fit_text(M.track_name(album.tracks[i], album), right - x - 76, T_TRACK), T_TRACK,
-                is_playing and ui.ACCENT or ui.WHITE, 4)
+            local name = M.track_name(album.tracks[i], album)
+            if i == tr_sel then scroll.line(c, x + 60, mid, right - x - 76, name, T_TRACK, is_playing and ui.ACCENT or ui.WHITE, 4)
+            else ui.text(c, x + 60, mid, ui.fit_text(name, right - x - 76, T_TRACK), T_TRACK,
+                is_playing and ui.ACCENT or ui.WHITE, 4) end
         end
         footer(c, { { "A", "Play" }, { "B", "Back" }, { "X", "Now playing" }, { "Select", "Settings" } })
     end
@@ -929,6 +935,33 @@ function M.app()
     -- the last one rather than flashing the empty picture in between.
     local last_st
 
+    -- What is playing, technically: "FLAC · 44.1 kHz · Stereo · 912 kbps"
+    -- (the bitrate as mpv measures it each second, so a VBR file moves).
+    local CODECS = { mp3float = "MP3", mp3 = "MP3", vorbis = "OGG", opus = "OPUS", flac = "FLAC", aac = "AAC",
+                     alac = "ALAC", wmav2 = "WMA", ape = "APE", wavpack = "WV" }
+    local function audio_info(room)
+        local codec = mp.get_property("audio-codec-name")
+        if not codec then return nil end
+        codec = CODECS[codec] or (codec:match("^pcm_") and "WAV") or codec:upper()
+        local rate = mp.get_property_number("audio-params/samplerate")
+        local ch = mp.get_property_number("audio-params/channel-count")
+        local br = mp.get_property_number("audio-bitrate")
+        local parts = { codec }
+        if rate then parts[#parts + 1] = (rate % 1000 == 0 and string.format("%d kHz", rate / 1000)
+                                          or string.format("%.1f kHz", rate / 1000)) end
+        local chans = ch == 1 and "Mono" or ch == 2 and "Stereo" or ch and (ch .. " ch")
+        if br and br > 0 then parts[#parts + 1] = string.format("%d kbps", math.floor(br / 1000 + 0.5)) end
+        -- the channels go first when space is short, then the codec
+        local full = table.concat(parts, " · ")
+        if chans then
+            local with = table.concat({ parts[1], parts[2], chans, parts[3] }, " · ")
+            if ui.width(with, 22) <= room then return with end
+        end
+        if ui.width(full, 22) <= room then return full end
+        table.remove(parts, 1)
+        return table.concat(parts, " · ")
+    end
+
     local function draw_playing(cv)
         local c = cv.lines
         local st = M.state()
@@ -946,7 +979,7 @@ function M.app()
         local x = COVER_X + COVER + 40
         local width = ui.W - x - 44
         ui.text(c, x, 100, ui.fit_text(st.album, width, T_ASIDE), T_ASIDE, ui.GREY, 7)
-        ui.text(c, x, 136, ui.fit_text(st.title, width, 48, true), 48, ui.WHITE, 7, true)
+        scroll.line(c, x, 136, width, st.title, 48, ui.WHITE, 7, true)
         ui.text(c, x, 198, ui.fit_text(st.artist, width, T_SUB + 4), T_SUB + 4, ui.GREY, 7)
         -- the controls: previous, play/pause, next, shuffle, repeat
         -- (kept small enough to leave the artist's line clear above them)
@@ -972,6 +1005,8 @@ function M.app()
         ui.circle(c, x + width * frac, by, on_bar and 16 or 12, ui.WHITE)
         ui.text(c, x, by + 24, ui.fmt_time(st.pos), T_HINT, on_bar and ui.WHITE or ui.GREY, 7)
         ui.text(c, x + width, by + 24, ui.fmt_time(st.dur), T_HINT, on_bar and ui.WHITE or ui.GREY, 9)
+        local info = st.path and audio_info(width - 2 * (ui.width("00:00", T_HINT) + 24))
+        if info then ui.text(c, x + width / 2, by + 26, info, 22, ui.DIM, 8) end
         -- the queue: the track before, this one, and the next ones
         local list = mp.get_property_native("playlist") or {}
         local cur = mp.get_property_number("playlist-pos", 0)
@@ -985,8 +1020,9 @@ function M.app()
             local now = i == cur
             ui.text(c, x + 6, mid, now and "♪" or tostring(i + 1), T_HINT, now and ui.ACCENT or ui.DIM, 4)
             local path = list[i + 1].filename
-            ui.text(c, x + 54, mid, ui.fit_text(M.track_name(path, full_album(path)), width - 70, T_SUB), T_SUB,
-                now and ui.ACCENT or ui.WHITE, 4)
+            local name = M.track_name(path, full_album(path))
+            if zone == "queue" and i == queue_sel then scroll.line(c, x + 54, mid, width - 70, name, T_SUB, now and ui.ACCENT or ui.WHITE, 4)
+            else ui.text(c, x + 54, mid, ui.fit_text(name, width - 70, T_SUB), T_SUB, now and ui.ACCENT or ui.WHITE, 4) end
         end
         local hints = { { "↑↓", "Move" } }
         if zone == "controls" then hints[#hints + 1] = { "←→", "Controls" }
@@ -1001,6 +1037,7 @@ function M.app()
     function draw()
         if not settled or screen_off then return end
         local cv = ui.canvas()
+        scroll.begin()
         hide_images = menu.open
         flow_now = false
         if not menu.open then
@@ -1014,6 +1051,7 @@ function M.app()
             draw_note(cv.lines)
             if options.open then options.draw(cv.lines) end
         end
+        if menu.open or options.open then scroll.clear() else scroll.finish() end
         if not flow_now then flow.hide() end
         finish_images()
         ui.show(overlay, cv)
@@ -1082,7 +1120,7 @@ function M.app()
     end
     mp.register_script_message("handheld-screen", function(on)
         screen_off = on == "off"
-        if not screen_off then draw() end
+        if screen_off then scroll.clear() else draw() end
     end)
 
     -- Search: a page of its own; B on an empty search goes back to where it opened.

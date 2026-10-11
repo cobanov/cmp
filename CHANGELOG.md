@@ -8,7 +8,6 @@ All notable changes to CMP. The format follows [Keep a Changelog](https://keepac
 
 - **Options on Y:** every page has an options panel: play an album or song next, add it to the queue, shuffle an album, search, and turn the screen off. In the player's queue: play next, move up or down, remove, clear the queue.
 - **Search** the library from the pad: a keyboard at the left, albums and songs that match at the right, updated with every letter. Case, accents and Turkish letters do not matter ("kotu" finds "Kötü").
-
 - **Headphones out, music paused:** pulling the headphones out pauses the player (also the background player on dual-screen devices) instead of carrying on from the speaker.
 - **Jump by letter** in a long library: ↑↓ in Cover Flow, ←→ in the album list. The letter shows big for a moment. Holding a direction also speeds up after a second.
 - **Track names from the tags** on the album page, in the queue and in the touch library. Until an album's tags are read (once, in the background, then kept) the file names show.
