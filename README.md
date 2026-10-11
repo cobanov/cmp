@@ -32,6 +32,8 @@ CMP replaces the music players that ship with handheld firmwares, which were nev
 - **Cover Flow, a list, and a real player.** Browse with Cover Flow or a list, open an album, and the player shows the cover, the controls, the progress and what comes next.
 - **One meaning per button.** A chooses, B goes back, X jumps to the player, L1 R1 change the track, L2 R2 seek. The hints at the bottom always show the buttons in the same order.
 - **Picks up where you left it.** The queue, the track and the position are saved when you quit.
+- **In your pocket, lid shut.** While music plays, closing the lid, the power button or Y turns the screen off and locks the buttons instead of putting the handheld to sleep. Open the lid, press power or hold Y to come back. When the music stops with the screen off, the handheld sleeps as usual.
+- **Sleep timer, clock and battery.** Stop the music after 15 to 90 minutes or at the end of the track, with a gentle fade. The clock and the battery (the same estimate EmulationStation shows) sit at the top of every page.
 - **Music under your games.** On dual-screen devices, L1 + R1 (or "Play in background") moves the queue to the second screen, where it keeps playing with touch controls while you play on the main one.
 
 ## Controls
@@ -41,6 +43,7 @@ CMP replaces the music players that ship with handheld firmwares, which were nev
 | A | Choose: open the album, play a track, press the focused control |
 | B | Back |
 | X | Now playing |
+| Y | Screen off, buttons locked (hold Y to unlock) |
 | ↑ ↓ | Move; in the player, between the controls, the progress bar and the queue |
 | ← → | Browse; in the player, walk the controls or seek on the progress bar |
 | L1 R1 | Previous / next track |
@@ -48,6 +51,7 @@ CMP replaces the music players that ship with handheld firmwares, which were nev
 | L2 R2 | Back / forward 10 s |
 | Select | Settings |
 | Start | Quit, the queue is saved |
+| Power, lid | While music plays: screen off and on |
 
 ## Try it
 

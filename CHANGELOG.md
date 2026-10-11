@@ -2,6 +2,19 @@
 
 All notable changes to CMP. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org).
 
+## [0.2.0] - 2026-10-12
+
+### Added
+
+- **Screen off while music plays.** Y or the power button turns the screen off and locks the buttons; the power button or holding Y for a second turns it back on. On a clamshell handheld such as the Anbernic RG SP, closing the lid does the same instead of putting the device to sleep, and opening it brings the screen back. When the music stops with the screen off (the sleep timer, the end of the queue), the handheld goes to sleep as before. Paused, the power button and the lid work as they always did.
+- **Sleep timer** in Settings: 15, 30, 45, 60 or 90 minutes, or the end of the track. The music fades out over 10 seconds. While it runs, a moon and the minutes left show at the top.
+- **Clock and battery** at the top right of every page. The level is ROCKNIX's batteryplus estimate, the same EmulationStation shows, with the fuel gauge as a fallback; green while charging, red when low.
+
+### Changed
+
+- A page's title and its detail (the artist, the track count) now sit together at the left, leaving the right for the status.
+- Long settings lists get slimmer rows instead of running off the screen.
+
 ## [0.1.0] - 2026-10-12
 
 The first release of CMP, the Console Music Player, for ROCKNIX.
@@ -23,4 +36,5 @@ The first release of CMP, the Console Music Player, for ROCKNIX.
 
 - ROCKNIX with its mpv 0.41 (no other dependencies). Tested on the Anbernic RG SP (single screen, 720x480) and the Anbernic RG DS Plus (two screens, 1024x768).
 
+[0.2.0]: https://github.com/cobanov/cmp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/cobanov/cmp/releases/tag/v0.1.0

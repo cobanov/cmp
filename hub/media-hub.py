@@ -231,6 +231,202 @@ class SecondScreen:
         self.sway.run(f"output {self.name} power off")
 
 
+# --- screen off, lid and power button (the music player) -----------------
+
+EV_SW, SW_LID, KEY_POWER = 5, 0, 116
+EVIOCGSW = 0x8008451B   # the switches' states, 8 bytes
+SCREEN_NOTE = "/run/cmp-screen-off"  # backlights turned off, for es/Music.sh to restore
+UNLOCK_HOLD = 1.0   # s Y is held to unlock
+STOPPED_GRACE = 3.0  # s the music may be stopped (a track change) before it counts
+
+
+def input_devices():
+    """[{"name", "event", "KEY", "SW", ...}] from /proc/bus/input/devices;
+    KEY and SW are the capability bitmasks as ints."""
+    devices, cur = [], {}
+    try:
+        with open("/proc/bus/input/devices") as f:
+            lines = f.read().splitlines() + [""]
+    except OSError:
+        return []
+    for line in lines:
+        if not line.strip():
+            if cur.get("event"):
+                devices.append(cur)
+            cur = {}
+        elif line.startswith("N: Name="):
+            cur["name"] = line[8:].strip().strip('"')
+        elif line.startswith("H: Handlers="):
+            events = [h for h in line[12:].split() if h.startswith("event")]
+            if events:
+                cur["event"] = "/dev/input/" + events[0]
+        elif line.startswith("B: ") and "=" in line:
+            key, _, value = line[3:].partition("=")
+            words = value.split()  # most significant first, 64 bits each
+            try:
+                cur[key] = sum(int(w, 16) << (64 * i) for i, w in enumerate(reversed(words)))
+            except ValueError:
+                pass
+    return devices
+
+
+class Guard:
+    """While music plays, the lid and the power button turn the screen off
+    instead of putting the handheld to sleep, and Y does the same from the
+    player. The buttons are locked while the screen is off: the power button,
+    opening the lid or holding Y turns it back on. When the music stops with
+    the screen off (the sleep timer, the end of the queue), the handheld
+    goes to sleep after all.
+
+    logind normally suspends on the lid and the power button; a "block"
+    inhibitor (systemd-inhibit) held only while music plays or the screen is
+    off keeps it from doing so, and logind takes over again, as before, the
+    moment it is let go (with the lid shut, it then suspends at once)."""
+
+    def __init__(self, second_screen=None):
+        self.second = second_screen
+        self.fds = {}  # fd -> "lid" | "power"
+        for d in input_devices():
+            kind = "lid" if d.get("SW", 0) >> SW_LID & 1 else "power" if d.get("KEY", 0) >> KEY_POWER & 1 else None
+            if kind:
+                try:
+                    self.fds[os.open(d["event"], os.O_RDONLY | os.O_NONBLOCK)] = kind
+                except OSError:
+                    pass
+        self.lid_closed = any(self._lid_shut(fd) for fd, k in self.fds.items() if k == "lid")
+        self.inhibitor = None
+        self.locked = False
+        self.playing = False
+        self.stopped_at = None
+        self.tell = lambda on: None  # set by the player: tells mpv the screen is on or off
+
+    @staticmethod
+    def _lid_shut(fd):
+        bits = bytearray(8)
+        try:
+            fcntl.ioctl(fd, EVIOCGSW, bits)
+        except OSError:
+            return False
+        return bool(bits[0] >> SW_LID & 1)
+
+    def _backlights(self):
+        """The main screen's backlights: every one but the second screen's."""
+        try:
+            names = sorted(os.listdir(BACKLIGHTS))
+        except OSError:
+            return []
+        return [b for b in names if not (self.second and b == self.second.backlight)]
+
+    def _screen(self, on):
+        names = self._backlights()
+        for b in names:
+            try:
+                with open(f"{BACKLIGHTS}/{b}/bl_power", "w") as f:
+                    f.write("0" if on else "4")  # FB_BLANK_UNBLANK / FB_BLANK_POWERDOWN
+            except OSError:
+                pass
+        try:
+            if on:
+                os.remove(SCREEN_NOTE)
+            else:
+                with open(SCREEN_NOTE, "w") as f:
+                    f.write(" ".join(names))
+        except OSError:
+            pass
+        if self.second:
+            if on:
+                self.second.on()
+            else:
+                self.second.sleep()
+        self.tell(on)
+
+    def lock(self):
+        if not self.locked and self.playing:
+            self.locked = True
+            self._hold(True)
+            self._screen(False)
+
+    def unlock(self):
+        if self.locked:
+            self.locked = False
+            self._screen(True)
+
+    def _hold(self, want):
+        if self.inhibitor and self.inhibitor.poll() is not None:
+            self.inhibitor = None
+        if want and not self.inhibitor:
+            try:
+                self.inhibitor = subprocess.Popen(
+                    ["systemd-inhibit", "--what=handle-lid-switch:handle-power-key", "--who=CMP",
+                     "--why=Music is playing", "--mode=block", "sleep", "infinity"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except OSError:
+                self.inhibitor = None
+        elif not want and self.inhibitor:
+            self.inhibitor.terminate()
+            try:
+                self.inhibitor.wait(2)
+            except subprocess.TimeoutExpired:
+                self.inhibitor.kill()
+            self.inhibitor = None
+
+    def read(self, fd):
+        try:
+            data = os.read(fd, EVENT.size * 16)
+        except BlockingIOError:
+            return
+        except OSError:
+            os.close(fd)
+            self.fds.pop(fd, None)
+            return
+        for i in range(0, len(data) - EVENT.size + 1, EVENT.size):
+            _, _, etype, code, value = EVENT.unpack_from(data, i)
+            if etype == EV_SW and code == SW_LID:
+                self.lid_closed = bool(value)
+                if value:
+                    self.lock()  # (not playing: logind is suspending)
+                else:
+                    self.unlock()
+            elif etype == EV_KEY and code == KEY_POWER and value == 1 and not self.lid_closed:
+                # only seen here while held back from logind: music plays or the screen is off
+                if self.locked:
+                    self.unlock()
+                elif self.playing and self.inhibitor:
+                    self.lock()
+
+    def set_playing(self, playing):
+        self.playing = playing
+        self.update()
+
+    def update(self):
+        """Hold logind back while music plays or the screen is off; sleep
+        once the music has stopped with the screen off."""
+        if self.locked and not self.playing:
+            now = time.monotonic()
+            if self.stopped_at is None:
+                self.stopped_at = now
+            elif now - self.stopped_at >= STOPPED_GRACE:
+                self.stopped_at = None
+                self.unlock()
+                self._hold(False)
+                if not self.lid_closed:  # (with the lid shut, logind suspends by itself now)
+                    subprocess.Popen(["systemctl", "suspend"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return
+        else:
+            self.stopped_at = None
+        self._hold(self.playing or self.locked)
+
+    def timeout(self):
+        return 1.0 if self.locked and not self.playing else None
+
+    def close(self):
+        self.unlock()
+        self._hold(False)
+        for fd in self.fds:
+            os.close(fd)
+        self.fds = {}
+
+
 # --- mpv IPC --------------------------------------------------------------
 
 class Mpv:
@@ -436,6 +632,7 @@ class Pad:
         self.held = {}       # key -> next repeat time
         self.stick_dir = {}  # axis -> key held by that axis
         self.shoulders = {}  # shoulder held -> whether it still sends itself on release
+        self.down = {}       # button -> when it went down
         self.buttons = BUTTONS
         self.next_look = 0
 
@@ -468,7 +665,7 @@ class Pad:
     def close(self):
         if self.fd is not None:
             os.close(self.fd)
-        self.fd, self.held, self.stick_dir, self.shoulders = None, {}, {}, {}
+        self.fd, self.held, self.stick_dir, self.shoulders, self.down = None, {}, {}, {}, {}
 
     def timeout(self):
         return max(0.0, min(self.held.values()) - time.monotonic()) if self.held else None
@@ -504,8 +701,10 @@ class Pad:
             _, _, etype, code, value = EVENT.unpack_from(data, i)
             if etype == EV_KEY and code in self.buttons:
                 if value == 1:
+                    self.down[self.buttons[code]] = time.monotonic()
                     self._press(self.buttons[code])
                 elif value == 0:
+                    self.down.pop(self.buttons[code], None)
                     self._release(self.buttons[code])
             elif etype == EV_ABS and code in STICKS and code in self.ranges:
                 lo, hi = self.ranges[code]
@@ -591,11 +790,32 @@ def run_player(main_sock=MAIN_SOCK):
     if screen:
         screen.on()
 
+    # the music player's own hub also turns the screen off (see Guard)
+    guard = Guard(screen) if main_sock != MAIN_SOCK else None
+    if guard:
+        guard.tell = lambda on: main.send(["script-message", "handheld-screen", "on" if on else "off"])
+
+    def locked():
+        return guard is not None and guard.locked
+
     def send_key(key, repeat):
+        if locked():
+            return  # buttons are locked while the screen is off
         main.send(["script-message", "handheld", key] + (["repeat"] if repeat else []))
 
+    def wake_remote():
+        nonlocal awake
+        awake = True
+        remote.send(["script-message", "handheld-wake"])
+        if state:
+            remote.send(["script-message", "handheld-state", state])
+
     pad = Pad(send_key)
-    main.on_connect = lambda m: m.send(["observe_property", 1, "user-data/handheld/state"])
+
+    def main_connected(m):
+        m.send(["observe_property", 1, "user-data/handheld/state"])
+        m.send(["observe_property", 3, "user-data/handheld/req"])
+    main.on_connect = main_connected
     remote.on_connect = lambda m: m.send(["observe_property", 2, "user-data/handheld/req"])
 
     def stop_remote():
@@ -626,7 +846,10 @@ def run_player(main_sock=MAIN_SOCK):
                 remote.connect()
 
             fds = [f for f in (pad.fd, main.sock, remote.sock, events, touch and touch.fd) if f is not None]
-            waits = [t for t in (pad.timeout(),) if t is not None]
+            fds += list(guard.fds) if guard else []
+            waits = [t for t in (pad.timeout(), guard and guard.timeout()) if t is not None]
+            if locked() and "y" in pad.down:
+                waits.append(max(0.0, pad.down["y"] + UNLOCK_HOLD - time.monotonic()))
             if not main.sock or (proc and not remote.sock):
                 waits.append(0.1)  # still starting
             if pad.fd is None or (second and main.sock and proc is None):
@@ -636,9 +859,15 @@ def run_player(main_sock=MAIN_SOCK):
             for f in ready:
                 if f == pad.fd:
                     pad.read()
+                elif guard and f in guard.fds:
+                    was = guard.locked
+                    guard.read(f)
+                    if was and not guard.locked and second:
+                        wake_remote()
                 elif touch and f == touch.fd:
                     # only needed when the output is off: sway then keeps touches to itself
-                    if touch.touched() and not awake and remote.sock and sway.powered(second) is False:
+                    if touch.touched() and not awake and not locked() and remote.sock \
+                            and sway.powered(second) is False:
                         awake = True
                         screen.on()
                         remote.send(["script-message", "handheld-wake"])
@@ -652,12 +881,23 @@ def run_player(main_sock=MAIN_SOCK):
                             return  # the music player's own hub ends with it
                         continue
                     for ev in evs:
+                        if ev.get("event") == "property-change" and ev.get("id") == 3 and guard:
+                            try:
+                                req = json.loads(ev.get("data") or "{}")
+                            except ValueError:
+                                req = {}
+                            if req.get("lock"):
+                                guard.lock()
+                                awake = False
                         if ev.get("event") == "property-change" and ev.get("id") == 1:
                             state = ev.get("data")
                             try:
-                                keep = json.loads(state).get("keep_on") if state else None
+                                info = json.loads(state) if state else {}
+                                keep = info.get("keep_on")
                             except (ValueError, AttributeError):
-                                keep = None
+                                info, keep = {}, None
+                            if guard and isinstance(info, dict) and "paused" in info:
+                                guard.set_playing(not info["paused"])
                             # asleep, the remote only needs to hear that "Stay on" changed
                             if state and (awake or keep != last_keep):
                                 remote.send(["script-message", "handheld-state", state])
@@ -671,6 +911,8 @@ def run_player(main_sock=MAIN_SOCK):
                             req = json.loads(ev["data"])
                         except ValueError:
                             continue
+                        if locked():
+                            continue  # the second screen stays dark and does nothing meanwhile
                         if req.get("wake"):
                             awake = True
                             screen.on()
@@ -697,10 +939,19 @@ def run_player(main_sock=MAIN_SOCK):
                         sway.run(f"focus output {main_out}")  # keep the main screen focused
             if pad.fd is not None:
                 pad.repeat()
+            if locked() and "y" in pad.down and time.monotonic() - pad.down["y"] >= UNLOCK_HOLD:
+                pad.down.pop("y")
+                guard.unlock()
+                if second:
+                    wake_remote()
+            if guard:
+                guard.update()
             if seen_main and proc and proc.poll() is not None:
                 proc = None  # remote crashed; started again on the next loop
                 remote.close()
     finally:
+        if guard:
+            guard.close()
         pad.close()
         if touch:
             touch.close()

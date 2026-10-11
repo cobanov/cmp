@@ -33,4 +33,9 @@ systemd-run --quiet --collect --unit=handheld-music "${HUB}" player "${SOCK}"
   --input-ipc-server="${SOCK}" ${EXTRA} \
   --script-opts=handheld-role=music,handheld-hub="${HUB}"
 systemctl stop handheld-music
+# the screen comes back even if the hub could not switch it on again itself
+if [ -f /run/cmp-screen-off ]; then
+  for b in $(cat /run/cmp-screen-off); do echo 0 > "/sys/class/backlight/${b}/bl_power"; done
+  rm -f /run/cmp-screen-off
+fi
 exit 0

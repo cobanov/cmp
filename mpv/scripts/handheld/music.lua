@@ -227,6 +227,73 @@ function M.cycle_repeat(dir)
 end
 
 -- Settings: the same three-tab screen as the video player (settings.lua).
+-- Sleep timer: the music fades out and stops after a while, or at the end of
+-- the track playing. M.sleep.at is the clock time it stops (os.time), so it
+-- can move along with the queue to the background player.
+local SLEEP = { 0, 15, 30, 45, 60, 90, "track" }
+M.sleep = { choice = 1, at = nil }
+local sleep_timer, fading
+
+function M.sleep_left()
+    return M.sleep.at and math.max(0, M.sleep.at - os.time()) or nil
+end
+
+local function fade_out()
+    if fading then return end
+    local volume, step = mp.get_property_number("volume", 100), 0
+    local STEPS = 20  -- over 10 s
+    fading = mp.add_periodic_timer(0.5, function()
+        step = step + 1
+        -- paused by hand meanwhile, or faded out: stop, and put the volume back
+        if step >= STEPS or mp.get_property_native("pause") then
+            fading:kill()
+            fading = nil
+            mp.set_property_native("pause", true)
+            mp.set_property_number("volume", volume)
+            if M.draw then M.draw() end
+            return
+        end
+        mp.set_property_number("volume", volume * (1 - step / STEPS))
+    end)
+end
+
+local function set_sleep(choice, at)
+    if sleep_timer then sleep_timer:kill(); sleep_timer = nil end
+    local minutes = SLEEP[choice]
+    M.sleep.choice = choice
+    M.sleep.at = type(minutes) == "number" and minutes > 0 and (at or os.time() + minutes * 60) or nil
+    if M.sleep.at then
+        sleep_timer = mp.add_timeout(math.max(1, M.sleep.at - os.time()), function()
+            sleep_timer = nil
+            M.sleep.choice, M.sleep.at = 1, nil
+            fade_out()
+        end)
+    end
+end
+
+-- "End of track": the next track loads paused (pause carries over to it)
+mp.register_event("end-file", function(e)
+    if SLEEP[M.sleep.choice] == "track" and e.reason == "eof" then
+        set_sleep(1)
+        mp.set_property_native("pause", true)
+    end
+end)
+
+local function sleep_label()
+    local v = SLEEP[M.sleep.choice]
+    if v == "track" then return "End of track" end
+    local left = M.sleep_left()
+    return left and string.format("%d min", math.ceil(left / 60)) or "Off"
+end
+
+-- a hand-over (to or from the background player) keeps a running timer
+local function restore_sleep(data)
+    if not data.play then return end
+    local choice = tonumber(data.sleep_choice) or 1
+    if SLEEP[choice] == "track" then set_sleep(choice)
+    elseif tonumber(data.sleep_at) and data.sleep_at > os.time() then set_sleep(choice, data.sleep_at) end
+end
+
 local in_background = mp.get_opt("handheld-role") == "bottom"
 -- ROCKNIX lists a dual-screen device's outputs, main first, in this variable
 local two_screens = (os.getenv("SDL_VIDEO_DISPLAY_PRIORITY") or ""):find(",") ~= nil
@@ -240,6 +307,8 @@ M.TABS = {
           change = function() M.set_shuffle(not M.shuffle) end },
         { key = "repeat", label = "Repeat", kind = "choice",
           value = function() return REPEAT[M.repeat_mode] end, change = M.cycle_repeat },
+        { key = "sleep", label = "Sleep timer", kind = "choice", value = sleep_label,
+          change = function(dir) set_sleep((M.sleep.choice - 1 + (dir or 1)) % #SLEEP + 1) end },
         { key = "album-view", label = "Album view", kind = "choice",
           value = function() return M.settings.view == "flow" and "Cover Flow" or "List" end,
           change = function()
@@ -310,6 +379,7 @@ function M.save_session(play)
     local data = {
         paths = paths, index = last_index, pos = mp.get_property_number("time-pos") or last_pos,
         shuffle = M.shuffle, ["repeat"] = M.repeat_mode, play = play or false, order = M.order,
+        sleep_choice = M.sleep.choice, sleep_at = M.sleep.at,
     }
     if mp.get_property_native("idle-active") then data.index, data.pos = 1, 0 end  -- played to its end
     local f = io.open(SESSION, "w")
@@ -331,6 +401,7 @@ function M.restore_session()
         mp.unobserve_property(load)
         load_queue(data.paths)
         if type(data.order) == "table" and #data.order > 0 then M.order = data.order end
+        restore_sleep(data)
         pending = { path = data.paths[data.index or 1], pos = data.pos }
         mp.set_property_native("pause", not data.play)
         start_at(data.index)
@@ -373,6 +444,7 @@ function M.background()
         M.shuffle, M.repeat_mode = data.shuffle or false, data["repeat"] or 1
         apply_repeat()
         if type(data.order) == "table" then M.order = data.order end
+        restore_sleep(data)
         if type(data.paths) == "table" then pending = { path = data.paths[data.index or 1], pos = data.pos } end
     end
     mp.register_event("shutdown", function() if not M.handed_off then M.save_session(false) end end)
@@ -486,13 +558,83 @@ function M.app()
     -- these handhelds, so 38 units of body text is about 2.5-3 mm.
     local T_TITLE, T_ASIDE, T_ROW, T_SUB, T_HINT = 44, 28, 38, 30, 26
 
-    local function header(c, title, sub)
-        local aside = sub and ui.fit_text(sub, ui.W * 0.3, T_ASIDE) or ""
-        ui.text(c, 44, 22, ui.fit_text(title, ui.W - 132 - ui.width(aside, T_ASIDE), T_TITLE, true), T_TITLE, ui.WHITE, 7, true)
-        if sub then ui.text(c, ui.W - 44, 36, aside, T_ASIDE, ui.GREY, 9) end
+    -- The battery, read at most every 30 s: { pct, charging } or nil.
+    local battery_dir, battery, battery_read = nil, nil, -100
+    local function read_battery()
+        if mp.get_time() - battery_read < 30 then return battery end
+        battery_read = mp.get_time()
+        if not battery_dir then
+            for _, d in ipairs(utils.readdir("/sys/class/power_supply", "dirs") or {}) do
+                local f = io.open("/sys/class/power_supply/" .. d .. "/type", "r")
+                local kind = f and f:read("*l")
+                if f then f:close() end
+                if kind == "Battery" then battery_dir = "/sys/class/power_supply/" .. d; break end
+            end
+            if not battery_dir then battery_dir = false end
+        end
+        if not battery_dir then return nil end
+        local function get(name)
+            local f = io.open(battery_dir .. "/" .. name, "r")
+            local v = f and f:read("*l")
+            if f then f:close() end
+            return v
+        end
+        -- ROCKNIX's batteryplus (on by default) estimates the level from the
+        -- voltage, which is what EmulationStation shows; the fuel gauge's own
+        -- figure is used only without it
+        local f = io.open("/tmp/battery.percent", "r")
+        local pct = f and tonumber(f:read("*l"))
+        if f then f:close() end
+        pct = pct or tonumber(get("capacity"))
+        local state = get("status")
+        battery = pct and { pct = pct, charging = state == "Charging" or state == "Full" } or nil
+        return battery
     end
 
+    -- Top right on every page: the sleep timer while it runs, the clock and
+    -- the battery. Returns where it begins, for the title to stop before.
+    local function status(c)
+        local y, x = 50, ui.W - 44
+        local b = read_battery()
+        if b then
+            x = x - 44
+            ui.icon_battery(c, x, y - 11, 40, 22, b.pct, b.charging)
+            local pct = b.pct .. "%"
+            x = x - 12
+            ui.text(c, x, y, pct, T_HINT, ui.GREY, 6)
+            x = x - ui.width(pct, T_HINT) - 22
+        end
+        local clock = os.date("%H:%M")
+        ui.text(c, x, y, clock, T_ASIDE, ui.WHITE, 6)
+        x = x - ui.width(clock, T_ASIDE)
+        local left = M.sleep_left()
+        if left or M.sleep.choice == #SLEEP then
+            local mins = left and (math.ceil(left / 60) .. "m") or "♪"
+            x = x - 22
+            ui.text(c, x, y, mins, T_HINT, ui.ACCENT, 6)
+            x = x - ui.width(mins, T_HINT) - 22
+            ui.icon_moon(c, x, y, 11, ui.ACCENT)
+            x = x - 11
+        end
+        return x
+    end
+
+    -- The page's title at the left, then a grey aside (artist, count), and
+    -- the status at the right.
+    local function header(c, title, sub)
+        local room = status(c) - 44 - 40
+        local aside = sub and ui.fit_text(sub, room * 0.4, T_ASIDE) or ""
+        local aside_w = sub and ui.width(aside, T_ASIDE) + 24 or 0
+        local shown = ui.fit_text(title, room - aside_w, T_TITLE, true)
+        ui.text(c, 44, 22, shown, T_TITLE, ui.WHITE, 7, true)
+        if sub then ui.text(c, 44 + ui.width(shown, T_TITLE, true) + 24, 36, aside, T_ASIDE, ui.GREY, 7) end
+    end
+
+    -- Y turns the screen off while music plays (the hub does it, see lock())
     local function footer(c, hints)
+        if mp.get_property("path") and not mp.get_property_native("pause") then
+            hints[#hints + 1] = { "Y", "Screen off" }
+        end
         ui.hints(c, 44, 726, hints, T_HINT)
     end
 
@@ -556,7 +698,8 @@ function M.app()
         local more = playing and "♪ Playing" or (#a.tracks .. " tracks")
         ui.text(c, ui.W / 2, 640, ui.fit_text(artist, ui.W - 360, T_SUB) .. "  ·  " .. more, T_SUB,
             playing and ui.ACCENT or ui.GREY, 8)
-        ui.text(c, ui.W - 44, 22, lib_sel .. " / " .. #albums, T_ASIDE, ui.DIM, 9)
+        ui.text(c, 44, 36, lib_sel .. " / " .. #albums, T_ASIDE, ui.DIM, 7)
+        status(c)
         footer(c, { { "A", "Open" }, { "X", "Now playing" }, { "Select", "Settings" } })
     end
 
@@ -668,8 +811,9 @@ function M.app()
     end
     -- the settings screen covers the whole main screen, so the browser
     -- (and its pictures, which would draw above it) steps aside meanwhile
+    local screen_off = false  -- the hub turned the screen off: nothing to draw for
     function draw()
-        if not settled then return end
+        if not settled or screen_off then return end
         local cv = ui.canvas()
         hide_images = menu.open
         flow_now = false
@@ -723,6 +867,17 @@ function M.app()
     -- One meaning per button everywhere: A chooses, B goes back, X jumps to
     -- the player; Y is kept free for later.
     local function to_player() if mp.get_property("path") then open_playing() end end
+
+    -- Screen off and the buttons locked: the hub reads the pad, the lid and
+    -- the power button, so it does this; the player only asks.
+    local function lock()
+        if not mp.get_property("path") or mp.get_property_native("pause") then return end
+        mp.set_property("user-data/handheld/req", utils.format_json({ lock = true, t = mp.get_time() }))
+    end
+    mp.register_script_message("handheld-screen", function(on)
+        screen_off = on == "off"
+        if not screen_off then draw() end
+    end)
 
     local keys = {
         library = {
@@ -807,6 +962,7 @@ function M.app()
         if key == "r1" then M.action("next"); return end
         if key == "l2" then M.action("seek", -10); return end
         if key == "r2" then M.action("seek", 10); return end
+        if key == "y" then lock(); return end
         if kind == "repeat" and NO_REPEAT[key] then return end
         local fn = keys[view][key]
         if fn then fn(); draw() end
@@ -828,7 +984,12 @@ function M.app()
 
     -- the "playing" marks follow the current track
     mp.observe_property("path", "string", function() queue_sel = nil; draw() end)
-    mp.add_periodic_timer(1, function() if view == "playing" and not menu.open then draw() end end)
+    -- the player's progress, and the clock everywhere (on the minute)
+    local minute = os.date("%M")
+    mp.add_periodic_timer(1, function()
+        if menu.open then return end
+        if view == "playing" or os.date("%M") ~= minute then minute = os.date("%M"); draw() end
+    end)
     -- The window opens at mpv's default size and sway makes it fullscreen a
     -- moment later; draw (and ask for pictures) once its size has settled.
     local settle

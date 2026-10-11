@@ -64,7 +64,7 @@ end
 
 S.ABOUT = {
     name = "CMP",
-    version = "0.1.0",
+    version = "0.2.0",
     tagline = "Console Music Player, for retro handhelds",
     lines = {
         { "Made by", "Mert Cobanov" },
@@ -133,6 +133,7 @@ S.GUIDE = {
         { "↑ ↓", "Move; in the player, the queue" },
         { "← →", "Browse; in the player, the controls" },
         { "L1 R1", "Previous / next track" },
+        { "Y", "Screen off, buttons locked; hold Y to unlock" },
         { "L1 + R1", "Together: play in the background (two screens)" },
         { "L2 R2", "Back / forward 10 s" },
         { "Select", "Settings" },
@@ -181,8 +182,9 @@ local function tabs_bar(cv, tabs, sel, o)
     end
 end
 
-local function row(cv, r, y, selected, o)
+local function row(cv, r, y, selected, o, h)
     local c = cv.lines
+    local ROW_H = h or ROW_H
     local mid = y + ROW_H / 2
     local dim = r.off
     ui.text(c, 48, mid, r.label, 34, dim and ui.DIM or r.danger and ui.RED or ui.WHITE, 4)
@@ -226,12 +228,16 @@ function S.draw(cv, tabs, o)
     local tab = tabs[o.tab] or tabs[1]
     local top = 96  -- a single list starts right under the title
     if #tabs > 1 then tabs_bar(cv, tabs, o.tab, o); top = ROW_Y end
+    -- a long list (a dual-screen device has a couple more rows) gets
+    -- slimmer rows rather than running off the screen
+    local bottom = o.pad and 708 or 760
+    local h = math.max(60, math.min(ROW_H, math.floor((bottom - top) / math.max(1, #tab.rows))))
     for i, r in ipairs(tab.rows) do
-        local y = top + (i - 1) * ROW_H
+        local y = top + (i - 1) * h
         local selected = o.pad and i == o.sel
-        if selected then ui.rect(c, 28, y + 4, ui.W - 56, ROW_H - 8, 16, ui.RAISED)
+        if selected then ui.rect(c, 28, y + 4, ui.W - 56, h - 8, 16, ui.RAISED)
         elseif i > 1 and not (o.pad and i - 1 == o.sel) then ui.rect(c, 44, y, ui.W - 88, 1, 0, ui.RAISED) end
-        row(cv, r, y, selected, o)
+        row(cv, r, y, selected, o, h)
     end
     if o.pad then
         local hints = { { "↑↓", "Select" }, { "←→", "Change" }, { "A", "Apply" }, { "B", "Close" } }

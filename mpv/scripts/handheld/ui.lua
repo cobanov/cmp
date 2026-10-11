@@ -212,6 +212,22 @@ function ui.icon_skip(c, cx, cy, s, color, forward)
     ui.rect(c, bx, cy - s * 0.45, s * 0.16, s * 0.9, 2, color)
 end
 
+-- A battery w x h (the nub outside), filled to pct; green while charging,
+-- red when low.
+function ui.icon_battery(c, x, y, w, h, pct, charging)
+    local color = charging and "58D130" or (pct <= 15 and ui.RED or ui.WHITE)  -- #30D158
+    ui.outline(c, x, y, w, h, h * 0.25, 2, ui.GREY)
+    ui.rect(c, x + w + 2, y + h * 0.3, 3, h * 0.4, 1, ui.GREY)
+    local inner = (w - 8) * math.max(0, math.min(100, pct)) / 100
+    if inner >= 1 then ui.rect(c, x + 4, y + 4, inner, h - 8, h * 0.12, color) end
+end
+
+-- A crescent moon of radius r: a circle with a circle of the background cut out.
+function ui.icon_moon(c, cx, cy, r, color, bg)
+    ui.circle(c, cx, cy, r, color)
+    ui.circle(c, cx + r * 0.45, cy - r * 0.35, r * 0.8, bg or "000000")
+end
+
 function ui.fmt_time(t)
     t = math.max(0, math.floor((t or 0) + 0.5))
     local h, m, s = math.floor(t / 3600), math.floor(t / 60) % 60, t % 60
