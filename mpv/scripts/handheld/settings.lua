@@ -11,6 +11,9 @@
 --                                leave the settings afterwards
 --                      "guide"   opens the button guide where it is drawn
 --                      "about"   opens the About page (S.ABOUT)
+--                      "page"    opens a page of the player's own (padmenu's
+--                                cfg.pages[key]); pad only
+--   pad_only           left out on the touch screen
 --   value(), on()      what it shows
 --   change(dir)        steppers and toggles; run() for actions
 --   off()              shown dimmed and does nothing
@@ -33,6 +36,7 @@ function S.snapshot(tabs)
                     key = r.key, label = call(r.label), kind = r.kind,
                     value = r.value and r.value() or "", on = r.on and r.on() or false,
                     off = r.off and r.off() or false, danger = r.danger or false, close = r.close or false,
+                    pad_only = r.pad_only or false,
                 }
             end
         end
@@ -195,7 +199,7 @@ local function row(cv, r, y, selected, o, h)
         ui.circle(c, r.on and sx + sw - sh / 2 or sx + sh / 2, mid, sh / 2 - 4, ui.WHITE)
         if r.value ~= "On" and r.value ~= "Off" then ui.text(c, sx - 20, mid, r.value, 28, ui.GREY, 6) end
         if not o.pad then ui.hit(cv, 0, y, ui.W, ROW_H, "setting", r.key, 1) end
-    elseif r.kind == "action" or r.kind == "guide" or r.kind == "about" then
+    elseif r.kind == "action" or r.kind == "guide" or r.kind == "about" or r.kind == "page" then
         if r.value ~= "" then ui.text(c, right, mid, r.value, 28, r.danger and ui.RED or ui.ACCENT, 6)
         else ui.text(c, right - 8, mid, "›", 42, dim and ui.DIM or ui.GREY, 6) end
         if not o.pad and not dim then
@@ -226,18 +230,32 @@ function S.draw(cv, tabs, o)
     header(cv, "Settings", o, "done")
     if #tabs == 0 then return end
     local tab = tabs[o.tab] or tabs[1]
+    if not o.pad then  -- rows for the pad only stay off the touch screen
+        local rows = {}
+        for _, r in ipairs(tab.rows) do if not r.pad_only then rows[#rows + 1] = r end end
+        tab = { title = tab.title, rows = rows }
+    end
     local top = 96  -- a single list starts right under the title
     if #tabs > 1 then tabs_bar(cv, tabs, o.tab, o); top = ROW_Y end
     -- a long list (a dual-screen device has a couple more rows) gets
     -- slimmer rows rather than running off the screen
+    -- slimmer rows rather than running off the screen; one longer still
+    -- scrolls with the cursor
     local bottom = o.pad and 708 or 760
     local h = math.max(60, math.min(ROW_H, math.floor((bottom - top) / math.max(1, #tab.rows))))
+    local fits = math.floor((bottom - top) / h)
+    local first = 1
+    if o.pad and #tab.rows > fits then
+        first = math.max(1, math.min((o.sel or 1) - math.floor(fits / 2), #tab.rows - fits + 1))
+    end
     for i, r in ipairs(tab.rows) do
-        local y = top + (i - 1) * h
+        if i < first or i >= first + fits then goto next end
+        local y = top + (i - first) * h
         local selected = o.pad and i == o.sel
         if selected then ui.rect(c, 28, y + 4, ui.W - 56, h - 8, 16, ui.RAISED)
         elseif i > 1 and not (o.pad and i - 1 == o.sel) then ui.rect(c, 44, y, ui.W - 88, 1, 0, ui.RAISED) end
         row(cv, r, y, selected, o, h)
+        ::next::
     end
     if o.pad then
         local hints = { { "↑↓", "Select" }, { "←→", "Change" }, { "A", "Apply" }, { "B", "Close" } }

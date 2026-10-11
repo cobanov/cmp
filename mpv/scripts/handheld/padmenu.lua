@@ -28,7 +28,8 @@ end
 function M.draw()
     if not M.open then overlay:remove(); overlay.data = nil; return end
     local cv = ui.canvas()
-    if guide == "about" then S.draw_about(cv, { pad = true, backdrop = 0x28 })
+    if guide and cfg.pages and cfg.pages[guide] then cfg.pages[guide].draw(cv.lines)
+    elseif guide == "about" then S.draw_about(cv, { pad = true, backdrop = 0x28 })
     elseif guide then S.draw_guide(cv, cfg.guide, { pad = true, backdrop = 0x28 })
     else S.draw(cv, (current()), { tab = tab, sel = sel, pad = true, backdrop = 0x28 }) end
     ui.show(overlay, cv)
@@ -48,6 +49,7 @@ local function later() mp.add_timeout(0.05, M.draw) end
 local function press(r, dir)
     if r.off then return end
     if r.kind == "guide" or r.kind == "about" then guide = r.kind; M.draw(); return end
+    if r.kind == "page" then guide = r.key; M.draw(); return end  -- a page of the player's own (cfg.pages)
     if r.kind == "action" and dir < 0 then return end
     local result = cfg.apply(r.key, dir)
     if result == "close" then M.close(); return end
@@ -59,6 +61,11 @@ end
 -- Returns true when the key was used by the menu.
 function M.key(key)
     if not M.open then return false end
+    if guide and cfg.pages and cfg.pages[guide] then
+        if cfg.pages[guide].key(key) == "close" then guide = false end
+        M.draw()
+        return true
+    end
     if guide then
         if key == "a" or key == "b" then guide = false; M.draw()
         elseif key == "select" then M.close() end
@@ -72,7 +79,8 @@ function M.key(key)
         M.draw()
     elseif key == "up" and #rows > 0 then sel = (sel - 2) % #rows + 1; M.draw()
     elseif key == "down" and #rows > 0 then sel = sel % #rows + 1; M.draw()
-    elseif (key == "left" or key == "right") and r and r.kind ~= "action" and r.kind ~= "guide" and r.kind ~= "about" then
+    elseif (key == "left" or key == "right") and r and r.kind ~= "action" and r.kind ~= "guide" and r.kind ~= "about"
+        and r.kind ~= "page" then
         press(r, key == "left" and -1 or 1)
     elseif key == "a" and r then press(r, 1)
     elseif key == "b" or key == "select" then M.close()

@@ -19,6 +19,7 @@ local tags = require "tags"
 local options = require "options"
 local search = require "search"
 local scroll = require "marquee"
+local eq = require "eq"
 
 local M = {}
 
@@ -42,6 +43,7 @@ local function load_settings()
     if type(data) ~= "table" then return end
     if data.view == "flow" or data.view == "list" then M.settings.view = data.view end
     if type(data.stay_on) == "boolean" then M.settings.stay_on = data.stay_on end
+    if type(data.eq) == "table" then M.settings.eq = data.eq end
 end
 
 local function save_settings()
@@ -54,6 +56,8 @@ end
 if not utils.file_info("/storage/.config/mpv") then os.execute("mkdir -p /storage/.config/mpv") end
 
 load_settings()
+eq.load(M.settings.eq)
+eq.apply()
 
 M.shuffle, M.repeat_mode = false, 1
 
@@ -433,6 +437,9 @@ M.TABS = {
           value = function() return REPEAT[M.repeat_mode] end, change = M.cycle_repeat },
         { key = "sleep", label = "Sleep timer", kind = "choice", value = sleep_label,
           change = function(dir) set_sleep((M.sleep.choice - 1 + (dir or 1)) % #SLEEP + 1) end },
+        { key = "eq", label = "Equalizer", kind = "choice", value = eq.name,
+          change = function(dir) eq.step(dir); M.settings.eq = eq.save(); save_settings() end },
+        { key = "eq-edit", label = "Edit equalizer", kind = "page", pad_only = true },
         { key = "album-view", label = "Album view", kind = "choice",
           value = function() return M.settings.view == "flow" and "Cover Flow" or "List" end,
           change = function()
@@ -1083,7 +1090,12 @@ function M.app()
     -- the list from last time is up already; read it again if a folder changed
     if from_cache then M.check_library(reload) end
     menu.setup({ model = function() return S.snapshot(M.TABS) end, guide = "music", on_toggle = draw,
-                 apply = function(key, dir) return M.action("setting", key, dir) end })
+                 apply = function(key, dir) return M.action("setting", key, dir) end,
+                 pages = { ["eq-edit"] = { draw = eq.draw, key = function(k)
+                     local r = eq.key(k)
+                     if r == "close" or k == "l1" or k == "r1" then M.settings.eq = eq.save(); save_settings() end
+                     return r
+                 end } } })
 
     local shuffle_play = M.shuffle_play
 
