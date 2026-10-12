@@ -30,6 +30,8 @@ local ROOT = "/storage/roms/music"
 local SESSION = "/storage/.config/mpv/handheld-music.json"
 local PLAYLIST = "/storage/.config/mpv/handheld-music.m3u"
 local HUB = mp.get_opt("handheld-hub") or "/storage/.config/mpv/media-hub.py"  -- set by the launcher
+-- the EmulationStation entry that opened the player ("Open player" starts it again)
+local launcher = mp.get_opt("handheld-launcher") or "/storage/.config/gmu/playlists/Music.sh"
 local AUDIO = { mp3 = true, flac = true, opus = true, ogg = true, m4a = true, aac = true, wav = true }
 local REPEAT = { "Off", "All", "One" }
 local SETTINGS_FILE = "/storage/.config/mpv/handheld-music-settings.json"
@@ -588,7 +590,7 @@ function M.save_session(play)
     local data = {
         paths = paths, index = last_index, pos = mp.get_property_number("time-pos") or last_pos,
         shuffle = M.shuffle, ["repeat"] = M.repeat_mode, play = play or false, order = M.order,
-        sleep_choice = M.sleep.choice, sleep_at = M.sleep.at,
+        sleep_choice = M.sleep.choice, sleep_at = M.sleep.at, launcher = launcher,
     }
     if mp.get_property_native("idle-active") then data.index, data.pos = 1, 0 end  -- played to its end
     local f = io.open(SESSION, "w")
@@ -724,6 +726,7 @@ function M.background()
         apply_repeat()
         if type(data.order) == "table" then M.order = data.order end
         restore_sleep(data)
+        if type(data.launcher) == "string" then launcher = data.launcher end
         if type(data.paths) == "table" then pending = { path = data.paths[data.index or 1], pos = data.pos } end
     end
     mp.register_event("shutdown", function() if not M.handed_off then M.save_session(false) end end)
@@ -738,8 +741,7 @@ function M.to_top()
         return
     end
     M.handed_off = true
-    mp.commandv("run", "curl", "-s", "-m", "3", "-X", "POST", "--data-binary",
-        "/storage/.config/gmu/playlists/Music.sh", "http://127.0.0.1:1234/launch")
+    mp.commandv("run", "curl", "-s", "-m", "3", "-X", "POST", "--data-binary", launcher, "http://127.0.0.1:1234/launch")
     mp.add_timeout(0.3, function() mp.command("quit") end)
 end
 

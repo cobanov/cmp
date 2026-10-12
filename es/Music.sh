@@ -6,8 +6,10 @@
 . /etc/profile
 set_kill set "mpv"
 
-# a music-only install keeps everything in its own folder, a full one in mpv's
-BASE=/storage/.config/cmp
+# a package keeps the files next to this script (/usr/share/cmp), a
+# music-only install in its own folder, a full one in mpv's
+BASE="$(dirname "$(readlink -f "$0")")"
+[ -f "${BASE}/media-hub.py" ] || BASE=/storage/.config/cmp
 [ -f "${BASE}/media-hub.py" ] || BASE=/storage/.config/mpv
 HUB="${BASE}/media-hub.py"
 SOCK=/tmp/mpv-music
@@ -40,7 +42,7 @@ MAIN_SCREEN="${SDL_VIDEO_DISPLAY_PRIORITY%%,*}"
 /usr/bin/mpv --fullscreen --idle=yes --force-window=yes --title="Music" --no-osc --vo=wlshm \
   --audio-display=no --save-position-on-quit=no --resume-playback=no \
   --input-ipc-server="${SOCK}" ${EXTRA} \
-  --script-opts=handheld-role=music,handheld-hub="${HUB}"
+  --script-opts=handheld-role=music,handheld-hub="${HUB}" --script-opts-append=handheld-launcher="$0"
 systemctl stop handheld-music
 # the screen comes back even if the hub could not switch it on again itself
 if [ -f /run/cmp-screen-off ]; then

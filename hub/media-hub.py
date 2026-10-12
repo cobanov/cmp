@@ -616,9 +616,12 @@ def grabbed_elsewhere(path):
         os.close(fd)
 
 
-def find_pad():
-    """The first joystick nobody else has grabbed: the pad itself, or the
-    virtual controller InputPlumber makes from it."""
+def find_pads():
+    """Every joystick nobody else has grabbed: the pad itself, or the virtual
+    controller InputPlumber makes from it. Without InputPlumber some pads are
+    several devices (the RG DS Plus: buttons in gpio-keys-control, sticks in
+    adc-joystick), so all of them are read."""
+    pads = []
     for name in sorted(os.listdir("/dev/input"), key=lambda n: int(n[5:]) if n[5:].isdigit() else 0):
         if not name.startswith("event"):
             continue
@@ -630,8 +633,8 @@ def find_pad():
             continue
         path = f"/dev/input/{name}"
         if not grabbed_elsewhere(path):
-            return path
-    return None
+            pads.append(path)
+    return pads
 
 
 class TouchWatch:
@@ -668,45 +671,49 @@ class Pad:
 
     def __init__(self, send):
         self.send = send   # send(key, repeat)
-        self.fd = None
-        self.ranges = {}
+        self.devices = {}    # fd -> (key code -> name, axis -> (min, max)), one per pad device
         self.held = {}       # key -> next repeat time
-        self.stick_dir = {}  # axis -> key held by that axis
+        self.stick_dir = {}  # (fd, axis) -> key held by that axis
         self.shoulders = {}  # shoulder held -> whether it still sends itself on release
         self.down = {}       # button -> when it went down
-        self.buttons = BUTTONS
         self.next_look = 0
 
+    @property
+    def fds(self):
+        return list(self.devices)
+
     def open(self):
-        if self.fd is not None or time.monotonic() < self.next_look:
+        if self.devices or time.monotonic() < self.next_look:
             return
         self.next_look = time.monotonic() + 1
-        path = find_pad()
-        if not path:
-            return
-        self.fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
-        try:
-            with open(f"/sys/class/input/{os.path.basename(path)}/device/name") as f:
-                name = f.read().strip()
-        except OSError:
-            name = ""
-        mapped = es_buttons(self.fd, name)
-        # ES's names for its buttons; the fixed table for anything ES leaves out
-        self.buttons = {**{c: k for c, k in BUTTONS.items() if k not in (mapped or {}).values()}, **(mapped or {})}
-        self.ranges = {}
-        for code in STICKS:
-            buf = bytearray(24)
+        for path in find_pads():
             try:
-                fcntl.ioctl(self.fd, 0x80184540 + code, buf)  # EVIOCGABS(code)
+                fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
             except OSError:
                 continue
-            _, lo, hi, _, _, _ = struct.unpack("6i", buf)
-            self.ranges[code] = (lo, hi)
+            try:
+                with open(f"/sys/class/input/{os.path.basename(path)}/device/name") as f:
+                    name = f.read().strip()
+            except OSError:
+                name = ""
+            mapped = es_buttons(fd, name)
+            # ES's names for its buttons; the fixed table for anything ES leaves out
+            buttons = {**{c: k for c, k in BUTTONS.items() if k not in (mapped or {}).values()}, **(mapped or {})}
+            ranges = {}
+            for code in STICKS:
+                buf = bytearray(24)
+                try:
+                    fcntl.ioctl(fd, 0x80184540 + code, buf)  # EVIOCGABS(code)
+                except OSError:
+                    continue
+                _, lo, hi, _, _, _ = struct.unpack("6i", buf)
+                ranges[code] = (lo, hi)
+            self.devices[fd] = (buttons, ranges)
 
     def close(self):
-        if self.fd is not None:
-            os.close(self.fd)
-        self.fd, self.held, self.stick_dir, self.shoulders, self.down = None, {}, {}, {}, {}
+        for fd in self.devices:
+            os.close(fd)
+        self.devices, self.held, self.stick_dir, self.shoulders, self.down = {}, {}, {}, {}, {}
 
     def timeout(self):
         return max(0.0, min(self.held.values()) - time.monotonic()) if self.held else None
@@ -730,35 +737,37 @@ class Pad:
             return
         self.held.pop(key, None)
 
-    def read(self):
+    def read(self, fd):
         try:
-            data = os.read(self.fd, EVENT.size * 64)
+            data = os.read(fd, EVENT.size * 64)
         except BlockingIOError:
             return
         except OSError:
             self.close()  # pad went away, look for it again
             return
+        buttons, ranges = self.devices[fd]
         for i in range(0, len(data) - EVENT.size + 1, EVENT.size):
             _, _, etype, code, value = EVENT.unpack_from(data, i)
-            if etype == EV_KEY and code in self.buttons:
+            if etype == EV_KEY and code in buttons:
                 if value == 1:
-                    self.down[self.buttons[code]] = time.monotonic()
-                    self._press(self.buttons[code])
+                    self.down[buttons[code]] = time.monotonic()
+                    self._press(buttons[code])
                 elif value == 0:
-                    self.down.pop(self.buttons[code], None)
-                    self._release(self.buttons[code])
-            elif etype == EV_ABS and code in STICKS and code in self.ranges:
-                lo, hi = self.ranges[code]
+                    self.down.pop(buttons[code], None)
+                    self._release(buttons[code])
+            elif etype == EV_ABS and code in STICKS and code in ranges:
+                lo, hi = ranges[code]
                 centre, half = (lo + hi) / 2, (hi - lo) / 2
                 pos = (value - centre) / half if half else 0
                 key = STICKS[code][0] if pos < -0.55 else STICKS[code][1] if pos > 0.55 else None
-                if pos and abs(pos) > 0.35 and key is None and code in self.stick_dir:
+                axis = (fd, code)
+                if pos and abs(pos) > 0.35 and key is None and axis in self.stick_dir:
                     continue  # hysteresis: keep the held direction until the stick comes back
-                if self.stick_dir.get(code) != key:
-                    if code in self.stick_dir:
-                        self._release(self.stick_dir.pop(code))
+                if self.stick_dir.get(axis) != key:
+                    if axis in self.stick_dir:
+                        self._release(self.stick_dir.pop(axis))
                     if key:
-                        self.stick_dir[code] = key
+                        self.stick_dir[axis] = key
                         self._press(key)
             elif etype == EV_ABS and code in HATS:
                 for key in HATS[code]:
@@ -901,20 +910,20 @@ def run_player(main_sock=MAIN_SOCK):
             if proc and not remote.sock:
                 remote.connect()
 
-            fds = [f for f in (pad.fd, main.sock, remote.sock, events, touch and touch.fd) if f is not None]
+            fds = pad.fds + [f for f in (main.sock, remote.sock, events, touch and touch.fd) if f is not None]
             fds += (list(guard.fds) if guard else []) + jack.fds
             waits = [t for t in (pad.timeout(), guard and guard.timeout()) if t is not None]
             if locked() and "y" in pad.down:
                 waits.append(max(0.0, pad.down["y"] + UNLOCK_HOLD - time.monotonic()))
             if not main.sock or (proc and not remote.sock):
                 waits.append(0.1)  # still starting
-            if pad.fd is None or (second and main.sock and proc is None):
+            if not pad.devices or (second and main.sock and proc is None):
                 waits.append(1.0)  # look for the pad again; restart the remote
             ready, _, _ = select.select(fds, [], [], min(waits) if waits else None)
 
             for f in ready:
-                if f == pad.fd:
-                    pad.read()
+                if f in pad.devices:
+                    pad.read(f)
                 elif f in jack.fds:
                     if jack.unplugged(f):
                         main.send(["set_property", "pause", True])  # headphones out: not on the speaker
@@ -998,7 +1007,7 @@ def run_player(main_sock=MAIN_SOCK):
                             remote.send(["script-message", "handheld-state", state])
                     elif app == REMOTE_ID and change == "focus":
                         sway.run(f"focus output {main_out}")  # keep the main screen focused
-            if pad.fd is not None:
+            if pad.devices:
                 pad.repeat()
             if locked() and "y" in pad.down and time.monotonic() - pad.down["y"] >= UNLOCK_HOLD:
                 pad.down.pop("y")

@@ -2,6 +2,16 @@
 
 All notable changes to CMP. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org).
 
+## [0.3.1] - 2026-10-13
+
+### Changed
+
+- **Packaged installs:** the launcher finds the player's files next to itself (a distribution can ship them in `/usr/share/cmp` and link the launcher anywhere), and "Open player" on the second screen starts the EmulationStation entry the player was opened from, whatever it is called.
+
+### Fixed
+
+- **Pads made of several devices:** the hub reads every pad device it finds, not only the first. Without InputPlumber the RG DS Plus has its buttons and its sticks on two devices, and the buttons did nothing.
+
 ## [0.3.0] - 2026-10-12
 
 ### Added
@@ -67,6 +77,7 @@ The first release of CMP, the Console Music Player, for ROCKNIX.
 
 - ROCKNIX with its mpv 0.41 (no other dependencies). Tested on the Anbernic RG SP (single screen, 720x480) and the Anbernic RG DS Plus (two screens, 1024x768).
 
+[0.3.1]: https://github.com/cobanov/cmp/releases/tag/v0.3.1
 [0.3.0]: https://github.com/cobanov/cmp/releases/tag/v0.3.0
 [0.2.0]: https://github.com/cobanov/cmp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/cobanov/cmp/releases/tag/v0.1.0
