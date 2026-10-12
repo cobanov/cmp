@@ -179,7 +179,7 @@ local function draw_albums(c, cv, st)
                     local title, artist = names(a)
                     ui.text(l, 148, 24, ui.trim(title, 32), 31, playing and ui.ACCENT or ui.WHITE, 7, true)
                     ui.text(l, 148, 68, ui.trim(artist, 40), 25, ui.GREY, 7)
-                    ui.text(l, 980, ALBUM_ROW / 2, playing and "♪ Playing" or (#a.tracks .. " tracks"), 22,
+                    ui.text(l, 980, ALBUM_ROW / 2, playing and "♪ Playing" or (#a.tracks .. (a.radio and " stations" or " tracks")), 22,
                         playing and ui.ACCENT or ui.DIM, 6)
                 end,
                 function(buf, w) if thumb_path then thumb(buf, w, thumb_path, THUMB_X, 20) end end)
@@ -193,7 +193,9 @@ local function draw_albums(c, cv, st)
     end
     show_cover(nil)
     show_list(0, ui.W, visible)
-    header(c, cv, "Library", #albums .. " albums", { { "Shuffle all", "lib-shuffle-all", 160 }, { "Done", "lib-done", 112, true } })
+    local count = 0  -- (the radio, album 0, is not one)
+    for _, a in ipairs(albums) do if not a.radio then count = count + 1 end end
+    header(c, cv, "Library", count .. " albums", { { "Shuffle all", "lib-shuffle-all", 160 }, { "Done", "lib-done", 112, true } })
 end
 
 local function draw_tracks(c, cv, st)
@@ -226,7 +228,10 @@ local function draw_tracks(c, cv, st)
     show_list(x0, w, visible)
     -- back to the albums: the arrow and the album's name
     local title, artist = names(a)
-    header(c, cv, title, artist, { { "Shuffle", "lib-shuffle-album", 128 }, { "Done", "lib-done", 112, true } }, "lib-back")
+    -- (stations are not shuffled)
+    local buttons = { { "Done", "lib-done", 112, true } }
+    if not a.radio then table.insert(buttons, 1, { "Shuffle", "lib-shuffle-album", 128 }) end
+    header(c, cv, title, artist, buttons, "lib-back")
 end
 
 -- What touch.lua calls ------------------------------------------------------
