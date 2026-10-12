@@ -826,6 +826,9 @@ def run_player(main_sock=MAIN_SOCK):
     # the player rather than after it, and powers the second screen on while
     # both are still loading (the one slow switch, about a second of sway).
     if second:
+        # the player's window opens on the screen with the focus: make that the
+        # main one (a touch on the second screen just before would take it there)
+        sway.run(f"focus output {main_out}")
         start_remote()
         remote_started = time.monotonic()
     if screen:
@@ -840,6 +843,14 @@ def run_player(main_sock=MAIN_SOCK):
 
     def locked():
         return guard is not None and guard.locked
+
+    # The player's window belongs on the main screen, filling it: it opens on
+    # the screen with the focus, which a touch on the second screen moves there.
+    def place_main():
+        sway.run(f'[app_id="mpv"] move container to output {main_out}, fullscreen enable, focus')
+        if proc:
+            sway.run(f'[app_id="{REMOTE_ID}"] move container to output {second}, fullscreen enable')
+        sway.run(f"focus output {main_out}")
 
     def send_key(key, repeat):
         if locked():
@@ -881,6 +892,8 @@ def run_player(main_sock=MAIN_SOCK):
         while True:
             pad.open()
             if not main.sock and main.connect():
+                if second and not seen_main:
+                    place_main()  # (its window may have opened before this hub listened)
                 seen_main = True
             if second and main.sock and proc is None and time.monotonic() - remote_started > 5:
                 start_remote()  # it crashed (at most every 5 s)
@@ -971,7 +984,9 @@ def run_player(main_sock=MAIN_SOCK):
                             main.send(req["cmd"])
                 elif f is events:
                     change, app = window_event(sway, events)
-                    if app == REMOTE_ID and change == "new":
+                    if app == "mpv" and change == "new":
+                        place_main()
+                    elif app == REMOTE_ID and change == "new":
                         # shown for a few seconds when the player opens, so people
                         # learn it is there; it then sleeps like after any use
                         sway.run(f'[app_id="{REMOTE_ID}"] move container to output {second}, fullscreen enable')
@@ -1137,6 +1152,11 @@ def main():
         else:
             sock = sys.argv[2] if role == "player" and len(sys.argv) > 2 else MAIN_SOCK
             while True:
+                # The video player's hub (mpv.service) stays out of the way of the
+                # music player's own: two hubs would both read the pad and both
+                # open a touch remote on the second screen.
+                while sock == MAIN_SOCK and unit_active("handheld-music"):
+                    time.sleep(1)
                 try:
                     run_player(sock)
                     if sock != MAIN_SOCK:

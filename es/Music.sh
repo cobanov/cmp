@@ -17,6 +17,10 @@ EXTRA=""
 [ "${BASE}" = /storage/.config/mpv ] ||
   EXTRA="--load-scripts=no --script=${BASE}/scripts/handheld --input-conf=${BASE}/input.conf"
 
+# ROCKNIX's video input service must not run beside the music player (its
+# hub would read the pad and open a second touch remote too)
+systemctl stop mpv 2>/dev/null
+
 # one player at a time; this also lets a background player save its queue first
 # (the note tells it a player follows, so it leaves the second screen on)
 touch /run/handheld-follows
@@ -25,6 +29,11 @@ rm -f /run/handheld-follows
 systemctl stop handheld-music 2>/dev/null
 systemctl reset-failed handheld-music 2>/dev/null
 systemd-run --quiet --collect --unit=handheld-music "${HUB}" player "${SOCK}"
+
+# the window opens on the screen with the focus: on a dual-screen device that
+# must be the main one (ROCKNIX lists it first), even after a touch below
+MAIN_SCREEN="${SDL_VIDEO_DISPLAY_PRIORITY%%,*}"
+[ -n "${MAIN_SCREEN}" ] && swaymsg "focus output ${MAIN_SCREEN}" >/dev/null 2>&1
 
 # vo=wlshm: everything on screen is drawn by the scripts, in software, which
 # works on every ROCKNIX device (the RK3566's Vulkan output shows no picture)

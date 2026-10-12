@@ -290,7 +290,10 @@ end
 -- player browses them (the app on the main screen keeps its own list).
 local library
 function M.library()
-    library = library or (M.load_library())
+    if not library then
+        library = M.load_library()
+        table.insert(library, 1, radio.album())  -- the radio is album 0 here too
+    end
     return library
 end
 
@@ -506,7 +509,7 @@ M.TABS = {
         { key = "eq", label = "Equalizer", kind = "choice", value = eq.name,
           change = function(dir) eq.step(dir); M.settings.eq = eq.save(); save_settings() end },
         { key = "eq-edit", label = "Edit equalizer", kind = "page", pad_only = true },
-        { key = "album-view", label = "Album view", kind = "choice",
+        { key = "album-view", label = "Album view", kind = "choice", pad_only = true,
           value = function() return M.settings.view == "flow" and "Cover Flow" or "List" end,
           change = function()
               M.settings.view = M.settings.view == "flow" and "list" or "flow"
@@ -521,11 +524,11 @@ M.TABS = {
           hidden = function() return not two_screens end,  -- the background player lives on the second screen
           run = function() if in_background then M.to_top() else M.to_bottom() end; return "close" end },
         -- only the browser on the main screen has a library to read again
-        { key = "rescan", label = "Rescan library", kind = "action",
+        { key = "rescan", label = "Rescan library", kind = "action", pad_only = true,
           hidden = function() return M.rescan == nil end,
           value = function() return M.album_count and (M.album_count .. " albums") or "" end,
           run = function() M.rescan() end },
-        { key = "guide", label = "Button guide", kind = "guide" },
+        { key = "guide", label = "Button guide", kind = "guide", pad_only = true },
         { key = "about", label = "About", kind = "about" },
     } },
 }
@@ -761,7 +764,9 @@ function M.action(name, a, b)
         elseif album then M.shuffle_play(album.tracks) end
     elseif name == "shuffle-all" then
         local all = {}
-        for _, album in ipairs(M.library()) do for _, t in ipairs(album.tracks) do all[#all + 1] = t end end
+        for _, album in ipairs(M.library()) do
+            if not album.radio then for _, t in ipairs(album.tracks) do all[#all + 1] = t end end
+        end
         M.shuffle_play(all)
     elseif name == "shuffle" then M.set_shuffle(not M.shuffle)
     elseif name == "repeat" then M.cycle_repeat()

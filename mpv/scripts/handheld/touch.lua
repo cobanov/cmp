@@ -13,12 +13,13 @@ local mp = require "mp"
 local ui = require "ui"
 local S = require "settings"
 local L = require "touchlib"
+local lyrics = require "lyrics"
 
 local T = {}
 
 local overlay = mp.create_osd_overlay("ass-events")
 local backend, remote
-local view = "hidden"            -- hidden | controls | settings | guide | about | library
+local view = "hidden"            -- hidden | controls | settings | guide | about | library | lyrics
 local tab = 1                    -- settings tab
 local cv = ui.canvas()
 local idle_timer, tick_timer
@@ -63,6 +64,13 @@ local function pill_row(c, pills)
 end
 
 local function progress(c, st, y)
+    if st.live then  -- a station: the bar full and faint, "● LIVE", how long it has played
+        ui.rect(c, BAR_X, y - 4, BAR_W, 8, 4, ui.ACCENT, 0x90)
+        ui.circle(c, BAR_X + 7, y + 40, 6, ui.RED)
+        ui.text(c, BAR_X + 20, y + 26, "LIVE", 22, ui.WHITE, 7, true)
+        ui.text(c, BAR_X + BAR_W, y + 26, ui.fmt_time(st.pos), 22, ui.GREY, 9)
+        return
+    end
     local dur = st.dur or 0
     local frac = dur > 0 and math.min(1, (st.pos or 0) / dur) or 0
     if drag then frac = drag.frac end
@@ -110,8 +118,12 @@ local function draw_music(st)
         if on then ui.circle(c, x, row + 30, 4, ui.ACCENT) end  -- the "on" dot, as in most players
         ui.hit(cv, x - 50, row - 36, 100, 80, name)
     end
-    toggle((prev_x + play_x) / 2, st.shuffle, function(x, col) ui.icon_shuffle(c, x, row, 40, col) end, "shuffle")
-    toggle((play_x + next_x) / 2, rep ~= "Off", function(x, col) ui.icon_repeat(c, x, row, 40, col, rep == "One") end, "repeat")
+    toggle(prev_x, st.shuffle, function(x, col) ui.icon_shuffle(c, x, row, 40, col) end, "shuffle")
+    toggle(play_x, rep ~= "Off", function(x, col) ui.icon_repeat(c, x, row, 40, col, rep == "One") end, "repeat")
+    -- the lyrics, on this screen (dim when the song has none)
+    local has = st.path and lyrics.get(st.path)
+    ui.icon_mic(c, next_x, row, 34, has and ui.GREY or ui.DIM)
+    if has then ui.hit(cv, next_x - 50, row - 36, 100, 80, "lyrics") end
     progress(c, st, BAR_Y)
     local pills = {
         { nil, remote and "Play in background" or "Open player", remote and "to-bottom" or "to-top" },
@@ -174,6 +186,53 @@ local function draw_controls(st)
     })
 end
 
+-- The lyrics, the whole screen: the line being sung in the middle, white;
+-- a redraw when the next one starts. The remote hears the position once a
+-- second and runs on from there.
+local lyrics_timer
+local function draw_lyrics(st)
+    local c = cv.lines
+    show_cover(nil)
+    if lyrics_timer then lyrics_timer:kill(); lyrics_timer = nil end
+    ui.text(c, 44, 40, ui.trim(st and st.title or "", 34), 28, ui.WHITE, 7, true)
+    ui.text(c, 44, 80, ui.trim(st and st.artist or "", 40), 22, ui.GREY, 7)
+    ui.rect(c, ui.W - 164, 30, 130, 60, 20, ui.ACCENT)
+    ui.text(c, ui.W - 99, 60, "Done", 28, ui.WHITE, 5, true)
+    ui.hit(cv, ui.W - 184, 18, 170, 88, "done")
+    local lyr = st and st.path and lyrics.get(st.path)
+    if not lyr then
+        ui.text(c, ui.W / 2, ui.H / 2, "No lyrics for this song", 30, ui.DIM, 5)
+        return
+    end
+    local pos = st.pos or 0
+    if not st.paused and st.at then pos = pos + (mp.get_time() - st.at) end
+    local LINE, top, bottom = 70, 130, ui.H - 24
+    local rows = math.floor((bottom - top) / LINE)
+    top = top + ((bottom - top) - rows * LINE) / 2  -- the lines in the middle of what is left
+    local lines, cur, first = lyr.lines, 0, 1
+    if lyr.timed then
+        cur = lyrics.at(lyr, pos)
+        first = math.max(1, math.min(cur - math.floor(rows / 2), #lines - rows + 1))
+    else
+        local frac = (st.dur or 0) > 0 and math.min(1, pos / st.dur) or 0
+        first = 1 + math.floor(frac * math.max(0, #lines - rows) + 0.5)
+    end
+    for i = first, math.min(#lines, first + rows - 1) do
+        local now = i == cur
+        local text = lines[i].text ~= "" and lines[i].text or "♪"
+        local size = now and 38 or 32
+        ui.text(c, ui.W / 2, top + (i - first) * LINE + LINE / 2, ui.fit_text(text, ui.W - 80, size, now), size,
+            now and ui.WHITE or (lyr.timed and i < cur and ui.DIM or ui.GREY), 5, now)
+    end
+    local nxt = lyr.timed and not st.paused and lyrics.next_time(lyr, pos)
+    if nxt then
+        lyrics_timer = mp.add_timeout(math.max(0.05, nxt - pos + 0.02), function()
+            lyrics_timer = nil
+            if view == "lyrics" then T.draw() end
+        end)
+    end
+end
+
 local function draw_settings(st)
     show_cover(nil)
     local tabs = st and st.settings or {}
@@ -204,6 +263,7 @@ local function draw()
     end
     local st = backend.state()
     if view == "controls" then draw_controls(st)
+    elseif view == "lyrics" then draw_lyrics(st)
     elseif view == "library" then show_cover(nil); L.draw(cv, st)
     else draw_settings(st) end
     ui.show(overlay, cv)
@@ -223,6 +283,7 @@ end
 
 
 local function in_settings() return view == "settings" or view == "guide" or view == "about" or view == "library" end
+local function stays() return view == "lyrics" end  -- read while the song plays: no turning off
 
 -- Stay lit? The remote and the music player follow the viewer's "Stay on";
 -- controls over a video always hide.
@@ -241,7 +302,7 @@ local function arm_idle(seconds)
             if st and st.paused then return end  -- keep controls up while paused
         end
         if not remote and in_settings() then return end
-        if keep_on() then return end
+        if keep_on() or stays() then return end
         T.hide()
     end)
 end
@@ -318,6 +379,7 @@ end
 local function run(hit)
     local name = hit.fn
     if name == "settings" then set_view("settings")
+    elseif name == "lyrics" then set_view("lyrics")
     elseif name == "done" then set_view("controls")
     elseif name == "tab" then tab = hit.data; draw()
     elseif name == "guide" then set_view("guide")

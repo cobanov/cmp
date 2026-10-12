@@ -27,6 +27,7 @@ if role == "remote" then
     end
     mp.register_script_message("handheld-state", function(json)
         state = utils.parse_json(json)
+        if state then state.at = mp.get_time() end  -- (the lyrics run on from here between updates)
         -- "Stay on" switched: show the screen (or, already showing, start its
         -- turn-off timer again) without leaving the page that is open
         local keep = state and state.keep_on or false
