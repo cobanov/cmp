@@ -148,7 +148,7 @@ local NO_REPEAT = { up = true, down = true }
 local STICK = { lstick_up = "up", lstick_down = "down", lstick_left = "left", lstick_right = "right" }
 
 mp.register_script_message("handheld", function(key, kind)
-    if key == "start" then mp.command("quit"); return end
+    if key == "start" or key == "select+start" then mp.command("quit"); return end
     key = STICK[key] or key  -- the left stick mirrors the d-pad; the right stick does nothing
     if menu.key(key) then return end
     if kind == "repeat" and NO_REPEAT[key] then return end

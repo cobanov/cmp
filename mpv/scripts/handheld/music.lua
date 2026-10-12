@@ -1550,7 +1550,12 @@ function M.app()
     local held, repeats = nil, 0
 
     mp.register_script_message("handheld", function(key, kind)
-        if key == "start" then mp.command("quit"); return end
+        -- Select + Start quits, as in RetroArch; Start alone plays and pauses
+        if key == "select+start" then mp.command("quit"); return end
+        if key == "start" then
+            if kind ~= "repeat" then M.action("pause"); draw() end
+            return
+        end
         key = ({ lstick_up = "up", lstick_down = "down", lstick_left = "left", lstick_right = "right" })[key] or key
         if menu.key(key) then return end
         if options.open then

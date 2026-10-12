@@ -22,6 +22,7 @@ All notable changes to CMP. The format follows [Keep a Changelog](https://keepac
 
 ### Changed
 
+- **Select + Start quits** (as in RetroArch), so a stray Start no longer ends the music; **Start alone plays and pauses** from any page. Select still opens the settings, when it is let go.
 - **Y opens the options** instead of turning the screen off; Screen off is in the options, and the power button and the lid still turn the screen off directly.
 - **The library opens at once.** It is kept between starts; folders changed since are noticed in the background and only then read again. Reading the library is also faster.
 

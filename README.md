@@ -53,7 +53,8 @@ CMP replaces the music players that ship with handheld firmwares, which were nev
 | L1 + R1 | Play in the background (two screens) |
 | L2 R2 | Back / forward 10 s |
 | Select | Settings |
-| Start | Quit, the queue is saved |
+| Start | Play / pause |
+| Select + Start | Quit, the queue is saved |
 | Power, lid | While music plays: screen off and on |
 
 ## Try it

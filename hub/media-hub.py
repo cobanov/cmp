@@ -541,9 +541,11 @@ STICKS = {0: ("lstick_left", "lstick_right"), 1: ("lstick_up", "lstick_down"),
           3: ("rstick_left", "rstick_right"), 4: ("rstick_up", "rstick_down")}
 HATS = {16: ("left", "right"), 17: ("up", "down")}
 REPEATING = {"up", "down", "left", "right"} | {k for pair in STICKS.values() for k in pair}
-# L1 and R1 also work together ("l1+r1"), so each is sent when it is let go
-# rather than when it is pressed, unless the other one joined it meanwhile
-SHOULDERS = {"l1": "r1", "r1": "l1"}
+# L1 and R1 also work together ("l1+r1"), and so do Select and Start
+# ("select+start", quit, as in RetroArch): each of them is sent when it is
+# let go rather than when it is pressed, unless the other one joined it
+SHOULDERS = {"l1": "r1", "r1": "l1", "select": "start", "start": "select"}
+COMBOS = {"l1": "l1+r1", "r1": "l1+r1", "select": "select+start", "start": "select+start"}
 
 # EmulationStation's own button mapping, per pad: drivers disagree on which
 # code the X and Y buttons send (the RG SP's H700 pad swaps them against the
@@ -712,8 +714,8 @@ class Pad:
     def _press(self, key):
         if key in SHOULDERS:
             if SHOULDERS[key] in self.shoulders:
-                self.shoulders = {key: False, SHOULDERS[key]: False}
-                self.send("l1+r1", False)
+                self.shoulders[key] = self.shoulders[SHOULDERS[key]] = False  # (the other pair keeps its state)
+                self.send(COMBOS[key], False)
             else:
                 self.shoulders[key] = True
             return

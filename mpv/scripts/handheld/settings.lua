@@ -141,7 +141,8 @@ S.GUIDE = {
         { "L1 + R1", "Together: play in the background (two screens)" },
         { "L2 R2", "Back / forward 10 s" },
         { "Select", "Settings" },
-        { "Start", "Quit, the queue is saved" },
+        { "Start", "Play / pause" },
+        { "Select + Start", "Quit, the queue is saved" },
     },
 }
 
@@ -307,11 +308,13 @@ end
 function S.draw_guide(cv, kind, o)
     local c = cv.lines
     header(cv, "Button guide", o, "guide-done")
-    for i, line in ipairs(S.GUIDE[kind] or S.GUIDE.video) do
-        local y = 88 + (i - 1) * 56
+    local lines = S.GUIDE[kind] or S.GUIDE.video
+    local step = math.min(56, math.floor((720 - 88) / #lines))  -- (a long guide gets closer rows)
+    for i, line in ipairs(lines) do
+        local y = 88 + (i - 1) * step
         if i > 1 then ui.rect(c, 44, y, ui.W - 88, 1, 0, ui.RAISED) end
-        ui.text(c, 48, y + 28, line[1], 28, ui.ACCENT, 4, true)
-        ui.text(c, 250, y + 28, line[2], 28, ui.WHITE, 4)
+        ui.text(c, 48, y + step / 2, line[1], 28, ui.ACCENT, 4, true)
+        ui.text(c, 290, y + step / 2, line[2], 28, ui.WHITE, 4)
     end
     if o.pad then ui.hints(c, 44, 738, { { "A", "Back" }, { "Select", "Close" } }, 24) end
 end
