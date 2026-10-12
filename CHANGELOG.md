@@ -20,11 +20,20 @@ All notable changes to CMP. The format follows [Keep a Changelog](https://keepac
 - **Jump by letter** in a long library: ↑↓ in Cover Flow, ←→ in the album list. The letter shows big for a moment. Holding a direction also speeds up after a second.
 - **Track names from the tags** on the album page, in the queue and in the touch library. Until an album's tags are read (once, in the background, then kept) the file names show.
 
+- **Dual screen:** the touch screen gets the microphone too, and shows the lyrics on its own page; a station shows LIVE there; the background player's library starts with the radio.
+
 ### Changed
 
 - **Select + Start quits** (as in RetroArch), so a stray Start no longer ends the music; **Start alone plays and pauses** from any page. Select still opens the settings, when it is let go.
 - **Y opens the options** instead of turning the screen off; Screen off is in the options, and the power button and the lid still turn the screen off directly.
+- The touch settings leave out what only concerns the pad (album view, rescan, button guide), so the list fits.
 - **The library opens at once.** It is kept between starts; folders changed since are noticed in the background and only then read again. Reading the library is also faster.
+
+### Fixed
+
+- On a dual-screen device, ROCKNIX's video input service could run beside the music player, so two hubs read the pad and two touch remotes opened, and the device seemed frozen.
+- On a dual-screen device, a touch on the second screen just before starting the player made it open there, with both windows side by side.
+- mpv showed an `.lrc` next to a track as a subtitle at the bottom of every page.
 
 ## [0.2.0] - 2026-10-12
 

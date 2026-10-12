@@ -3,7 +3,7 @@
 <h1>CMP</h1>
 
 **Console Music Player: a music player for retro handhelds that you actually want to use.**<br>
-Cover Flow, your albums and covers, resume where you stopped, and music that keeps playing under a game.
+Cover Flow, search, lyrics, radio and an equalizer, made for a pad, and music that keeps playing under a game.
 
 **[Download](https://github.com/cobanov/cmp/releases/latest)** · [Install](#try-it) · [Controls](#controls) · [Changes](CHANGELOG.md) · [Issues](https://github.com/cobanov/cmp/issues)
 
@@ -13,16 +13,16 @@ CMP replaces the music players that ship with handheld firmwares, which were nev
 
 <div align="center">
   <img src="docs/cmp-cover-flow.png" width="45%" alt="Cover Flow">
-  <img src="docs/cmp-now-playing.png" width="45%" alt="Now playing">
-  <br><sub>Cover Flow and the player on an Anbernic RG SP (720x480).</sub>
+  <img src="docs/cmp-now-playing.png" width="45%" alt="Now playing, with the lyrics">
+  <br><sub>Cover Flow on an Anbernic RG SP (720x480), the player with timed lyrics on an RG DS Plus (1024x768).</sub>
   <br><br>
-  <img src="docs/cmp-album.png" width="45%" alt="An album">
+  <img src="docs/cmp-search.png" width="45%" alt="Search">
   <img src="docs/cmp-settings.png" width="45%" alt="Settings">
-  <br><sub>An album and the settings: big type, made for a pad.</sub>
+  <br><sub>Search with the pad, and the settings: big type, made for a pad.</sub>
   <br><br>
-  <img src="docs/cmp-touch-library.png" width="45%" alt="The library on the touch screen">
+  <img src="docs/cmp-touch-lyrics.png" width="45%" alt="The lyrics on the touch screen">
   <img src="docs/music-background.png" width="45%" alt="Music on the second screen under a game">
-  <br><sub>On a dual-screen device the music keeps playing on the second screen during a game, with its own touch library.</sub>
+  <br><sub>On a dual-screen device the touch screen shows the lyrics, or keeps the music playing under a game with its own library.</sub>
 </div>
 
 ## Made for the device in your hands
@@ -37,7 +37,7 @@ CMP replaces the music players that ship with handheld firmwares, which were nev
 - **Lyrics, radio and audiobooks.** Timed lyrics from `.lrc` files follow the song, internet stations play from a simple `radio.m3u`, and long tracks remember where you stopped, with bookmarks and a speed control.
 - **Sound your way.** A 10-band equalizer with presets, ReplayGain, crossfade between tracks, and the format, sample rate and bitrate of what is playing.
 - **Sleep timer, clock and battery.** Stop the music after 15 to 90 minutes or at the end of the track, with a gentle fade. The clock and the battery (the same estimate EmulationStation shows) sit at the top of every page.
-- **Music under your games.** On dual-screen devices, L1 + R1 (or "Play in background") moves the queue to the second screen, where it keeps playing with touch controls while you play on the main one.
+- **Two screens, both used.** On dual-screen devices the touch screen is a remote with the lyrics a tap away, and L1 + R1 (or "Play in background") moves the queue there to keep playing, with its own library and the radio, while you play a game on the main screen.
 
 ## Controls
 
