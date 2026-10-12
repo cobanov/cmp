@@ -2,7 +2,7 @@
 
 All notable changes to CMP. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org).
 
-## [Unreleased]
+## [0.3.0] - 2026-10-12
 
 ### Added
 
@@ -19,7 +19,6 @@ All notable changes to CMP. The format follows [Keep a Changelog](https://keepac
 - **Headphones out, music paused:** pulling the headphones out pauses the player (also the background player on dual-screen devices) instead of carrying on from the speaker.
 - **Jump by letter** in a long library: ↑↓ in Cover Flow, ←→ in the album list. The letter shows big for a moment. Holding a direction also speeds up after a second.
 - **Track names from the tags** on the album page, in the queue and in the touch library. Until an album's tags are read (once, in the background, then kept) the file names show.
-
 - **Dual screen:** the touch screen gets the microphone too, and shows the lyrics on its own page; a station shows LIVE there; the background player's library starts with the radio.
 
 ### Changed
@@ -33,7 +32,6 @@ All notable changes to CMP. The format follows [Keep a Changelog](https://keepac
 
 - On a dual-screen device, ROCKNIX's video input service could run beside the music player, so two hubs read the pad and two touch remotes opened, and the device seemed frozen.
 - On a dual-screen device, a touch on the second screen just before starting the player made it open there, with both windows side by side.
-- mpv showed an `.lrc` next to a track as a subtitle at the bottom of every page.
 
 ## [0.2.0] - 2026-10-12
 
@@ -69,5 +67,6 @@ The first release of CMP, the Console Music Player, for ROCKNIX.
 
 - ROCKNIX with its mpv 0.41 (no other dependencies). Tested on the Anbernic RG SP (single screen, 720x480) and the Anbernic RG DS Plus (two screens, 1024x768).
 
+[0.3.0]: https://github.com/cobanov/cmp/releases/tag/v0.3.0
 [0.2.0]: https://github.com/cobanov/cmp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/cobanov/cmp/releases/tag/v0.1.0
