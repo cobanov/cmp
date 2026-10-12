@@ -778,7 +778,13 @@ end
 
 function M.app()
     local overlay = mp.create_osd_overlay("ass-events")
-    local albums, from_cache = M.load_library()
+    -- The radio is album 0, before the albums.
+    local function with_radio(list)
+        table.insert(list, 1, radio.album())
+        return list
+    end
+    local loaded, from_cache = M.load_library()
+    local albums = with_radio(loaded)
     local view = "library"   -- library (list or Cover Flow) | album | playing
 
     local lib_sel, lib_top = 1, 1
@@ -834,7 +840,7 @@ function M.app()
 
     -- a picture, or a dark tile with a note while there is none (yet)
     local function picture(c, id, a, x, y, size, radius)
-        local path = a and not a.radio and covers.get(a, ui.px(size))
+        local path = a and covers.get(a, ui.px(size))
         if path then image(id, path, x, y, size)
         else
             ui.rect(c, x, y, size, size, radius, ui.PANEL)
@@ -951,6 +957,7 @@ function M.app()
     local UPPER = { ["ç"] = "Ç", ["ğ"] = "Ğ", ["ı"] = "I", ["ö"] = "Ö", ["ş"] = "Ş", ["ü"] = "Ü" }
     local function letter(a)
         local c = (a and a.name or ""):match("^[%z\1-\127\194-\244][\128-\191]*") or ""
+        if a and a.radio then return "♫" end
         if c:match("^%a$") then return c:upper() end
         if #c > 1 then return UPPER[c] or c end
         return "#"
@@ -981,7 +988,7 @@ function M.app()
     local ROWS, ROW_H, ROW_Y, THUMB = 4, 128, 100, 100
     local function draw_library(cv)
         local c = cv.lines
-        header(c, "Music", #albums .. " albums")
+        header(c, "Music", (#albums - 1) .. " albums")
         if #albums == 0 then
             ui.text(c, ui.W / 2, 340, "No music yet", T_TITLE, ui.WHITE, 5, true)
             ui.text(c, ui.W / 2, 400, "Put album folders in /storage/roms/music", T_SUB, ui.GREY, 5)
@@ -1034,7 +1041,7 @@ function M.app()
         local playing = a.dir == playing_dir()
         -- under the strip (44 + 400 + reflection): the title, then artist and track count on one line
         ui.text(c, ui.W / 2, 582, ui.fit_text(title, ui.W - 120, T_TITLE, true), T_TITLE, playing and ui.ACCENT or ui.WHITE, 8, true)
-        local more = playing and "♪ Playing" or (#a.tracks .. " tracks")
+        local more = playing and "♪ Playing" or (#a.tracks .. (a.radio and " stations" or " tracks"))
         ui.text(c, ui.W / 2, 640, ui.fit_text(artist, ui.W - 360, T_SUB) .. "  ·  " .. more, T_SUB,
             playing and ui.ACCENT or ui.GREY, 8)
         -- top left, above the covers: the letter after a jump, then where we are
@@ -1043,7 +1050,8 @@ function M.app()
             ui.text(c, x, 22, shown_letter, T_TITLE, ui.ACCENT, 7, true)
             x = x + ui.width(shown_letter, T_TITLE, true) + 18
         end
-        ui.text(c, x, 36, lib_sel .. " / " .. #albums, T_ASIDE, ui.DIM, 7)
+        -- (the radio is album 0)
+        ui.text(c, x, 36, a.radio and "Radio" or ((lib_sel - 1) .. " / " .. (#albums - 1)), T_ASIDE, ui.DIM, 7)
         status(c)
         footer(c, library_hints("↑↓"))
     end
@@ -1288,13 +1296,13 @@ function M.app()
     end
     M.draw = draw
 
-    M.album_count = #albums
+    M.album_count = #albums - 1
     -- Read the library again, staying on the same album (and page) when it
     -- is still there.
     local function reload()
         local keep, open = albums[lib_sel] and albums[lib_sel].dir, album and album.dir
-        albums = M.scan()
-        M.album_count = #albums
+        albums = with_radio(M.scan())
+        M.album_count = #albums - 1
         lib_sel = math.max(1, math.min(lib_sel, #albums))
         local still_open = false
         for i, a in ipairs(albums) do
@@ -1402,11 +1410,7 @@ function M.app()
             queue_items(a.tracks, "Album")
             add("Shuffle album", function() play(a.tracks, 1, true) end)
         end
-        if view == "library" then
-            add("Radio", function()
-                album, tr_sel, tr_top, view, album_back = radio.album(), 1, 1, "album", "library"
-            end)
-        elseif view == "album" then
+        if view == "album" then
             local path = album.tracks[tr_sel]
             title = M.track_name(path, album)
             queue_items({ path }, "Song")
@@ -1629,6 +1633,7 @@ function M.app()
 
     -- start on the album that was playing (the first draw waits for the window)
     local resumed = album_of(M.restore_session() or nil)
+    lib_sel = #albums > 1 and 2 or 1  -- nothing to go back to: the first album, after the radio
     for i, a in ipairs(albums) do
         if resumed and a.dir == resumed.dir then lib_sel = i end
     end

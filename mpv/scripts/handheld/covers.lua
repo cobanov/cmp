@@ -171,8 +171,24 @@ end
 
 -- Path of the album's picture px pixels wide, or nil while it is being made
 -- (on_ready is called then) or when the album has none.
+-- The radio's picture: a radio and its name on a dark tile, drawn here once
+-- per size (with libass, like the rest of the screen).
+function C.radio_picture(px)
+    local path = string.format("%s/radio-%d.bgra", CACHE, px)
+    if whole(path, px) then return path end
+    local ui, B = require "ui", require "textbmp"
+    local buf = ffi.new("int32_t[?]", px * px)
+    local bg = bit.tobit(0xFF1C1C1E)  -- ui.PANEL
+    for i = 0, px * px - 1 do buf[i] = bg end
+    local lines = {}
+    ui.icon_radio(lines, px / 2, px * 0.42, px * 0.46, ui.ACCENT)
+    ui.text(lines, px / 2, px * 0.8, "Radio", math.floor(px * 0.12), ui.WHITE, 5, true)
+    if not B.draw(buf, px, px, px, lines) then return nil end
+    return put(path, ffi.string(buf, px * px * 4)) and path or nil
+end
+
 function C.get(a, px)
-    if a.radio then return nil end  -- (stations have no pictures)
+    if a.radio then return C.radio_picture(px) end
     local k = a.dir .. "@" .. px
     if known[k] ~= nil then return known[k] or nil end
     local path
