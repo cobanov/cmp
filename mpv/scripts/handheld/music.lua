@@ -1146,8 +1146,12 @@ function M.app()
             ui.text(c, x + w / 2, top + (i - first) * LINE, ui.fit_text(text, w - 48, size, now), size,
                 now and ui.WHITE or (lyr.timed and i < cur and ui.DIM or ui.GREY), 5, now)
         end
+    end
+
+    -- a redraw when the next line starts
+    local function follow_lyrics(lyr, pos, paused)
         if lyrics_timer then lyrics_timer:kill(); lyrics_timer = nil end
-        local nxt = lyr.timed and not paused and lyrics.next_time(lyr, pos)
+        local nxt = lyr and lyr.timed and not paused and lyrics.next_time(lyr, pos)
         if nxt then
             local speed = mp.get_property_number("speed", 1)
             lyrics_timer = mp.add_timeout(math.max(0.05, (nxt - pos) / speed + 0.02), function()
@@ -1155,6 +1159,29 @@ function M.app()
                 if view == "playing" then draw() end
             end)
         end
+    end
+
+    -- With the cover showing, the line being sung sits at the bottom, like
+    -- a subtitle (only on this page); two lines when it is long.
+    local function draw_lyric_line(c, lyr, pos)
+        if not lyr.timed then return end
+        local i = lyrics.at(lyr, pos)
+        local text = i > 0 and lyr.lines[i].text or ""
+        if text == "" then return end
+        local room = ui.W - 88
+        if ui.width(text, 34) <= room then
+            ui.text(c, ui.W / 2, 716, text, 34, ui.WHITE, 5)
+            return
+        end
+        -- split at the space nearest the middle
+        local best, mid = nil, #text / 2
+        for p in text:gmatch("()%s") do
+            if not best or math.abs(p - mid) < math.abs(best - mid) then best = p end
+        end
+        local a, b = text, ""
+        if best then a, b = text:sub(1, best - 1), text:sub(best + 1) end
+        ui.text(c, ui.W / 2, 694, ui.fit_text(a, room, 30), 30, ui.WHITE, 5)
+        ui.text(c, ui.W / 2, 736, ui.fit_text(b, room, 30), 30, ui.WHITE, 5)
     end
 
     local function draw_playing(cv)
@@ -1170,9 +1197,13 @@ function M.app()
         local count = mp.get_property_number("playlist-count", 0)
         header(c, "Now playing", count > 0 and string.format("%d / %d", mp.get_property_number("playlist-pos", 0) + 1, count))
         local COVER = cover_size()
-        local lyr = M.settings.lyrics and st.path and lyrics.get(st.path)
-        if lyr then draw_lyrics(c, lyr, st.pos or 0, st.paused, COVER_X, COVER_Y, COVER, COVER)
-        else picture(c, 20, here, COVER_X, COVER_Y, COVER, 22) end  -- the album page's overlay: the same picture stays put
+        local lyr = st.path and lyrics.get(st.path)
+        if lyr and M.settings.lyrics then draw_lyrics(c, lyr, st.pos or 0, st.paused, COVER_X, COVER_Y, COVER, COVER)
+        else
+            picture(c, 20, here, COVER_X, COVER_Y, COVER, 22)  -- the album page's overlay: the same picture stays put
+            if lyr then draw_lyric_line(c, lyr, st.pos or 0) end
+        end
+        follow_lyrics(lyr, st.pos or 0, st.paused)
         local x = COVER_X + COVER + 40
         local width = ui.W - x - 44
         ui.text(c, x, 100, ui.fit_text(st.album, width, T_ASIDE), T_ASIDE, ui.GREY, 7)
@@ -1228,12 +1259,7 @@ function M.app()
             local name = M.track_name(path, full_album(path))
             ui.text(c, x + 54, mid, ui.fit_text(name, width - 70, T_SUB), T_SUB, now and ui.ACCENT or ui.WHITE, 4)
         end
-        local hints = { { "↑↓", "Move" } }
-        if zone == "controls" then hints[#hints + 1] = { "←→", "Controls" }
-        elseif zone == "progress" then hints[#hints + 1] = { "←→", "−10 s / +10 s" } end
-        hints[#hints + 1] = { "A", zone == "progress" and "Pause" or "Select" }
-        hints[#hints + 1] = { "B", "Back" }
-        footer(c, hints)
+        -- (no key hints here: the bottom belongs to the lyrics)
     end
     -- the settings screen covers the whole main screen, so the browser
     -- (and its pictures, which would draw above it) steps aside meanwhile
