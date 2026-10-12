@@ -1238,9 +1238,11 @@ function M.app()
         local by = 384
         local frac = (st.dur or 0) > 0 and math.min(1, (st.pos or 0) / st.dur) or 0
         local on_bar = zone == "progress"
-        if st.live then
-            ui.rect(c, x, by - 20, 92, 40, 20, on_bar and ui.ACCENT or ui.RED)
-            ui.text(c, x + 46, by, "LIVE", 24, ui.WHITE, 5, true)
+        if st.live then  -- the bar full and faint, "● LIVE" where the time goes, how long it has played
+            ui.rect(c, x, by - 4, width, 8, 4, ui.ACCENT, 0x90)
+            ui.circle(c, x + 7, by + 38, 6, ui.RED)
+            ui.text(c, x + 20, by + 24, "LIVE", T_HINT, ui.WHITE, 7, true)
+            ui.text(c, x + width, by + 24, ui.fmt_time(st.pos), T_HINT, ui.GREY, 9)
         else
             ui.rect(c, x, by - 4, width, 8, 4, ui.WHITE, 0xB0)
             ui.rect(c, x, by - 4, math.max(8, width * frac), 8, 4, ui.ACCENT)
@@ -1505,12 +1507,15 @@ function M.app()
             end,
             up = function()
                 if zone == "queue" then
-                    if queue_sel and queue_sel > 0 then queue_sel = queue_sel - 1 else zone = "progress" end
+                    -- (a station has no bar to seek on)
+                    if queue_sel and queue_sel > 0 then queue_sel = queue_sel - 1
+                    else zone = radio.is_stream(mp.get_property("path")) and "controls" or "progress" end
                 elseif zone == "progress" then zone = "controls" end
             end,
             down = function()
                 local n = mp.get_property_number("playlist-count", 0)
-                if zone == "controls" then zone = "progress"
+                if zone == "controls" then zone = radio.is_stream(mp.get_property("path")) and "queue" or "progress"
+                    if zone == "queue" then queue_sel = mp.get_property_number("playlist-pos", 0) end
                 elseif zone == "progress" then
                     zone, queue_sel = "queue", mp.get_property_number("playlist-pos", 0)
                 elseif queue_sel then queue_sel = math.min(n - 1, queue_sel + 1) end

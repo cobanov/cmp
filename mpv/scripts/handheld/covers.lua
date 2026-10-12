@@ -171,18 +171,55 @@ end
 
 -- Path of the album's picture px pixels wide, or nil while it is being made
 -- (on_ready is called then) or when the album has none.
--- The radio's picture: a radio and its name on a dark tile, drawn here once
--- per size (with libass, like the rest of the screen).
+-- The radio's picture, drawn here once per size: a white radio on a blue
+-- gradient, with its name, made like an album cover (full bleed) so it sits
+-- among them. (The version in the file name makes old drawings go.)
+local RADIO_ART = 2
+
+local function radio_art(lines, s, ui)
+    local DARK = "552C0D"  -- #0D2C55, the details
+    -- the antenna, from the body's top right, with a ball at its tip
+    ui.line(lines, s * 0.64, s * 0.37, s * 0.77, s * 0.16, s * 0.026, ui.WHITE)
+    ui.circle(lines, s * 0.77, s * 0.16, s * 0.025, ui.WHITE)
+    -- the body
+    ui.rect(lines, s * 0.17, s * 0.35, s * 0.66, s * 0.36, s * 0.07, ui.WHITE)
+    -- the speaker: a grille of rings
+    local sx, sy = s * 0.355, s * 0.53
+    ui.circle(lines, sx, sy, s * 0.115, DARK)
+    ui.ring(lines, sx, sy, s * 0.075, math.max(1, s * 0.012), ui.WHITE)
+    ui.ring(lines, sx, sy, s * 0.038, math.max(1, s * 0.012), ui.WHITE)
+    -- the dial: a window with ticks and a needle
+    local dx, dy, dw, dh = s * 0.53, s * 0.43, s * 0.22, s * 0.1
+    ui.rect(lines, dx, dy, dw, dh, s * 0.02, DARK)
+    for i = 1, 5 do
+        local tx = dx + dw * i / 6
+        ui.rect(lines, tx - s * 0.003, dy + dh * 0.62, s * 0.006, dh * 0.22, 0, ui.WHITE)
+    end
+    ui.rect(lines, dx + dw * 0.62 - s * 0.005, dy + dh * 0.14, s * 0.01, dh * 0.72, 0, "3A9FFF")  -- #FF9F3A
+    -- two knobs
+    ui.circle(lines, s * 0.575, s * 0.61, s * 0.032, DARK)
+    ui.circle(lines, s * 0.705, s * 0.61, s * 0.032, DARK)
+    -- the name
+    ui.text(lines, s / 2, s * 0.84, "Radio", math.floor(s * 0.11), ui.WHITE, 5, true)
+end
+
 function C.radio_picture(px)
-    local path = string.format("%s/radio-%d.bgra", CACHE, px)
+    local path = string.format("%s/radio%d-%d.bgra", CACHE, RADIO_ART, px)
     if whole(path, px) then return path end
     local ui, B = require "ui", require "textbmp"
     local buf = ffi.new("int32_t[?]", px * px)
-    local bg = bit.tobit(0xFF1C1C1E)  -- ui.PANEL
-    for i = 0, px * px - 1 do buf[i] = bg end
+    -- the gradient: #2A7DE1 at the top to #0B2347 at the bottom
+    local r1, g1, b1, r2, g2, b2 = 0x2A, 0x7D, 0xE1, 0x0B, 0x23, 0x47
+    for y = 0, px - 1 do
+        local t = y / math.max(1, px - 1)
+        local r = math.floor(r1 + (r2 - r1) * t + 0.5)
+        local g = math.floor(g1 + (g2 - g1) * t + 0.5)
+        local b = math.floor(b1 + (b2 - b1) * t + 0.5)
+        local v = bit.bor(bit.lshift(0xFF, 24), bit.lshift(r, 16), bit.lshift(g, 8), b)
+        for x = 0, px - 1 do buf[y * px + x] = v end
+    end
     local lines = {}
-    ui.icon_radio(lines, px / 2, px * 0.42, px * 0.46, ui.ACCENT)
-    ui.text(lines, px / 2, px * 0.8, "Radio", math.floor(px * 0.12), ui.WHITE, 5, true)
+    radio_art(lines, px, ui)
     if not B.draw(buf, px, px, px, lines) then return nil end
     return put(path, ffi.string(buf, px * px * 4)) and path or nil
 end
