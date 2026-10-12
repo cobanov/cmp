@@ -1194,7 +1194,7 @@ function M.app()
         ui.icon_repeat(c, cx[5], cy, 30, rep ~= "Off" and ui.ACCENT or ui.GREY, rep == "One")
         -- lyrics on or off: lit while they show, dim when the song has none
         local has_lyrics = st.path and lyrics.get(st.path)
-        ui.icon_mic(c, cx[6], cy, 36, not has_lyrics and ui.DIM or (M.settings.lyrics and ui.ACCENT or ui.GREY))
+        ui.icon_mic(c, cx[6], cy, 26, not has_lyrics and ui.DIM or (M.settings.lyrics and ui.ACCENT or ui.GREY))
         -- progress (a station is live: no bar, nothing to seek)
         local by = 384
         local frac = (st.dur or 0) > 0 and math.min(1, (st.pos or 0) / st.dur) or 0
