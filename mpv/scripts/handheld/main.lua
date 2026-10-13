@@ -39,7 +39,9 @@ if role == "remote" then
     end)
     -- the hub saw a finger on the (powered off) screen
     mp.register_script_message("handheld-wake", function(why)
-        if why == "intro" then touch.intro() else touch.show("controls") end
+        if why == "intro" then touch.intro()
+        elseif why == "poke" then touch.poke()  -- already showing: the page stays, its timer starts again
+        else touch.show("controls") end
     end)
     touch.init({
         state = function() return state end,

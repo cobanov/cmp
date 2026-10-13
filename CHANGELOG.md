@@ -2,15 +2,21 @@
 
 All notable changes to CMP. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org).
 
-## [0.3.1] - 2026-10-13
+## [0.4.0] - 2026-10-13
+
+### Added
+
+- **Two screens, two jobs.** On a dual-screen device the main screen's player is now a showcase: the cover or the lyrics, big, with the song, the album and the artist beside them. The touch screen is the remote: the controls, a progress bar to drag, and the queue, where a tap plays a song and a finger scrolls the list. On the main screen ↑↓ pick a song in that queue (the touch screen lights up to show the pick), A plays it, ←→ seek. One-screen devices keep the player as it was.
+- **X switches between the lyrics and the cover** in Now playing, on any device. The hint shows next to the song when it has lyrics.
 
 ### Changed
 
 - **Packaged installs:** the launcher finds the player's files next to itself (a distribution can ship them in `/usr/share/cmp` and link the launcher anywhere), and "Open player" on the second screen starts the EmulationStation entry the player was opened from, whatever it is called.
+- The touch remote's microphone now switches the main screen between the lyrics and the cover. The lyrics page on the touch screen stays for the background player.
 
 ### Fixed
 
-- **Pads made of several devices:** the hub reads every pad device it finds, not only the first. Without InputPlumber the RG DS Plus has its buttons and its sticks on two devices, and the buttons did nothing.
+- **Pads made of several devices:** the hub reads every pad device it finds, not only the first, and picks up one that comes up later. Without InputPlumber the RG DS Plus has its buttons and its sticks on two devices, and the buttons did nothing.
 
 ## [0.3.0] - 2026-10-12
 
@@ -47,7 +53,7 @@ All notable changes to CMP. The format follows [Keep a Changelog](https://keepac
 
 ### Added
 
-- **Screen off while music plays.** Y or the power button turns the screen off and locks the buttons; the power button or holding Y for a second turns it back on. On a clamshell handheld such as the Anbernic RG SP, closing the lid does the same instead of putting the device to sleep, and opening it brings the screen back. When the music stops with the screen off (the sleep timer, the end of the queue), the handheld goes to sleep as before. Paused, the power button and the lid work as they always did.
+- **Screen off while music plays.** Y or the power button turns the screen off and locks the buttons; the power button or holding Y for a second turns it back on. On a clamshell handheld such as the Anbernic RG34XX SP, closing the lid does the same instead of putting the device to sleep, and opening it brings the screen back. When the music stops with the screen off (the sleep timer, the end of the queue), the handheld goes to sleep as before. Paused, the power button and the lid work as they always did.
 - **Sleep timer** in Settings: 15, 30, 45, 60 or 90 minutes, or the end of the track. The music fades out over 10 seconds. While it runs, a moon and the minutes left show at the top.
 - **Clock and battery** at the top right of every page. The level is ROCKNIX's batteryplus estimate, the same EmulationStation shows, with the fuel gauge as a fallback; green while charging, red when low.
 
@@ -75,9 +81,9 @@ The first release of CMP, the Console Music Player, for ROCKNIX.
 
 ### Requirements
 
-- ROCKNIX with its mpv 0.41 (no other dependencies). Tested on the Anbernic RG SP (single screen, 720x480) and the Anbernic RG DS Plus (two screens, 1024x768).
+- ROCKNIX with its mpv 0.41 (no other dependencies). Tested on the Anbernic RG34XX SP (single screen, 720x480) and the Anbernic RG DS Plus (two screens, 1024x768).
 
-[0.3.1]: https://github.com/cobanov/cmp/releases/tag/v0.3.1
+[0.4.0]: https://github.com/cobanov/cmp/releases/tag/v0.4.0
 [0.3.0]: https://github.com/cobanov/cmp/releases/tag/v0.3.0
 [0.2.0]: https://github.com/cobanov/cmp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/cobanov/cmp/releases/tag/v0.1.0

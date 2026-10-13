@@ -616,7 +616,7 @@ def grabbed_elsewhere(path):
         os.close(fd)
 
 
-def find_pads():
+def find_pads(skip=()):
     """Every joystick nobody else has grabbed: the pad itself, or the virtual
     controller InputPlumber makes from it. Without InputPlumber some pads are
     several devices (the RG DS Plus: buttons in gpio-keys-control, sticks in
@@ -632,7 +632,7 @@ def find_pads():
         except (OSError, ValueError):
             continue
         path = f"/dev/input/{name}"
-        if not grabbed_elsewhere(path):
+        if path not in skip and not grabbed_elsewhere(path):
             pads.append(path)
     return pads
 
@@ -672,6 +672,7 @@ class Pad:
     def __init__(self, send):
         self.send = send   # send(key, repeat)
         self.devices = {}    # fd -> (key code -> name, axis -> (min, max)), one per pad device
+        self.paths = {}      # fd -> its /dev/input path
         self.held = {}       # key -> next repeat time
         self.stick_dir = {}  # (fd, axis) -> key held by that axis
         self.shoulders = {}  # shoulder held -> whether it still sends itself on release
@@ -683,10 +684,12 @@ class Pad:
         return list(self.devices)
 
     def open(self):
-        if self.devices or time.monotonic() < self.next_look:
+        # looked for again now and then, also with a pad open: one of its
+        # devices may come up later than the other
+        if time.monotonic() < self.next_look:
             return
-        self.next_look = time.monotonic() + 1
-        for path in find_pads():
+        self.next_look = time.monotonic() + (3 if self.devices else 1)
+        for path in find_pads(skip=set(self.paths.values())):
             try:
                 fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
             except OSError:
@@ -709,11 +712,12 @@ class Pad:
                 _, lo, hi, _, _, _ = struct.unpack("6i", buf)
                 ranges[code] = (lo, hi)
             self.devices[fd] = (buttons, ranges)
+            self.paths[fd] = path
 
     def close(self):
         for fd in self.devices:
             os.close(fd)
-        self.devices, self.held, self.stick_dir, self.shoulders, self.down = {}, {}, {}, {}, {}
+        self.devices, self.paths, self.held, self.stick_dir, self.shoulders, self.down = {}, {}, {}, {}, {}, {}
 
     def timeout(self):
         return max(0.0, min(self.held.values()) - time.monotonic()) if self.held else None
@@ -919,6 +923,7 @@ def run_player(main_sock=MAIN_SOCK):
                 waits.append(0.1)  # still starting
             if not pad.devices or (second and main.sock and proc is None):
                 waits.append(1.0)  # look for the pad again; restart the remote
+            waits.append(3.0)  # (and for a pad device that came up late, see Pad.open)
             ready, _, _ = select.select(fds, [], [], min(waits) if waits else None)
 
             for f in ready:
@@ -949,14 +954,24 @@ def run_player(main_sock=MAIN_SOCK):
                             return  # the music player's own hub ends with it
                         continue
                     for ev in evs:
-                        if ev.get("event") == "property-change" and ev.get("id") == 3 and guard:
+                        if ev.get("event") == "property-change" and ev.get("id") == 3:
                             try:
                                 req = json.loads(ev.get("data") or "{}")
                             except ValueError:
                                 req = {}
-                            if req.get("lock"):
+                            if req.get("lock") and guard:
                                 guard.lock()
                                 awake = False
+                            elif req.get("wake") and second and remote.sock and not locked():
+                                # the pad picks something shown on the second screen (the queue)
+                                if awake:  # already on: it starts its turn-off timer again
+                                    remote.send(["script-message", "handheld-wake", "poke"])
+                                else:
+                                    awake = True
+                                    screen.on()
+                                    remote.send(["script-message", "handheld-wake"])
+                                    if state:
+                                        remote.send(["script-message", "handheld-state", state])
                         if ev.get("event") == "property-change" and ev.get("id") == 1:
                             state = ev.get("data")
                             try:

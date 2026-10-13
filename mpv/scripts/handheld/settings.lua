@@ -68,7 +68,7 @@ end
 
 S.ABOUT = {
     name = "CMP",
-    version = "0.3.1",
+    version = "0.4.0",
     tagline = "Console Music Player, for retro handhelds",
     lines = {
         { "Made by", "Mert Cobanov" },
@@ -133,7 +133,7 @@ S.GUIDE = {
     music = {
         { "A", "Choose: open the album, play a track" },
         { "B", "Back" },
-        { "X", "Now playing" },
+        { "X", "Now playing; there, lyrics or the cover" },
         { "↑ ↓", "Move; in Cover Flow, jump by letter" },
         { "← →", "Browse; in the album list, jump by letter" },
         { "L1 R1", "Previous / next track" },

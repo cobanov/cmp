@@ -535,7 +535,37 @@ M.TABS = {
     } },
 }
 
-function M.state()
+-- What the second screen's queue calls each track. Names are kept (the file
+-- name too, until the tags come in: M.forget_queue_names) and asked for only
+-- around the rows shown, so a shuffled library does not read every album.
+local queue_names = {}
+local function queue_name(path)
+    local name = queue_names[path]
+    if name then return name end
+    name = M.track_name(path, (M.full_album or album_of)(path))  -- (the whole album: its tags are read at once)
+    queue_names[path] = name
+    return name
+end
+function M.forget_queue_names() queue_names = {} end
+-- The queue goes to the second screen every second, so only a stretch of it
+-- goes: around the pad's pick or the song playing, or where a finger
+-- scrolled the list to (M.queue_view, from the remote).
+local QUEUE_WINDOW = 100
+M.queue_view = nil
+
+local function queue_window(state, pos)
+    local list = mp.get_property_native("playlist") or {}
+    local at = M.queue_view or state.queue_sel or pos
+    local start = math.max(0, math.min(at - 30, #list - QUEUE_WINDOW))
+    local names, ids = {}, {}
+    for i = start + 1, math.min(#list, start + QUEUE_WINDOW) do
+        names[#names + 1] = queue_name(list[i].filename)
+        ids[#ids + 1] = list[i].id
+    end
+    state.queue, state.queue_ids, state.queue_start, state.queue_count = names, ids, start, #list
+end
+
+function M.state(for_remote)
     local path = mp.get_property("path")
     local album = album_of(path)
     local meta = mp.get_property_native("metadata") or {}
@@ -566,6 +596,14 @@ function M.state()
         state.title = meta["icy-title"] or station
         state.artist = meta["icy-title"] and station or "Internet radio"
         state.album = "Radio"
+    end
+    -- the queue, which the second screen lists (the main screen then only
+    -- shows what is playing), and the row the pad has picked there
+    if for_remote and two_screens and M.queue_mark then
+        state.queue_pos, state.queue_sel = pos, M.queue_mark()
+        queue_window(state, pos)
+        state.lyrics_on = M.settings.lyrics  -- lyrics or the cover up there (the remote's microphone switches)
+        state.has_lyrics = path and lyrics.get(path) ~= nil  -- (from the tags too: only this process can read them)
     end
     return state
 end
@@ -757,6 +795,20 @@ function M.action(name, a, b)
     elseif name == "prev" then
         if mp.get_property_number("time-pos", 0) > 4 then mp.commandv("seek", 0, "absolute") else mp.command("playlist-prev") end
     elseif name == "next" then mp.command("playlist-next")
+    elseif name == "queue-play" then  -- a song of the queue by its entry id; the one playing pauses
+        -- (an id, not a place: the queue may have changed since the remote drew it)
+        local id, at = tonumber(a), nil
+        for i, e in ipairs(mp.get_property_native("playlist") or {}) do
+            if e.id == id then at = i - 1 end
+        end
+        if not at then return end
+        if at == mp.get_property_number("playlist-pos", -1) then M.action("pause")
+        else
+            mp.set_property_number("playlist-pos", at)
+            mp.set_property_native("pause", false)
+        end
+    elseif name == "queue-view" then  -- a finger scrolled the remote's queue to this row
+        M.queue_view = tonumber(a)
     elseif name == "setting" then
         local _, result = S.apply(M.TABS, a, tonumber(b) or 1)
         return result
@@ -772,7 +824,7 @@ function M.action(name, a, b)
         M.shuffle_play(all)
     elseif name == "shuffle" then M.set_shuffle(not M.shuffle)
     elseif name == "repeat" then M.cycle_repeat()
-    elseif name == "lyrics" then
+    elseif name == "lyrics" or name == "toggle-lyrics" then
         M.settings.lyrics = not M.settings.lyrics
         save_settings()
     elseif name == "to-bottom" then M.to_bottom()
@@ -807,7 +859,10 @@ function M.app()
     covers.setup(mp.get_script_directory(), ui.S, function()
         if draw then draw(); flow.refresh() end
     end)
-    tags.setup(nil, function() if draw and (view == "album" or view == "playing") then draw() end end)
+    tags.setup(nil, function()
+        M.forget_queue_names()
+        if draw and (view == "album" or view == "playing") then draw() end
+    end)
     -- the whole album a track belongs to (album_of only knows the folder)
     local function full_album(path)
         local a = album_of(path)
@@ -816,6 +871,7 @@ function M.app()
         for _, b in ipairs(albums) do if b.dir == a.dir then return b end end
         return nil
     end
+    M.full_album = full_album
 
     -- Covers are mpv overlays. Re-adding one on every redraw makes it blink,
     -- so only touch the ones that changed. Positions and sizes in units.
@@ -1199,6 +1255,40 @@ function M.app()
         ui.text(c, ui.W / 2, 736, ui.fit_text(b, room, 30), 30, ui.WHITE, 5)
     end
 
+    -- With a second screen the controls and the queue live there, so the
+    -- main screen only shows what is playing: a big cover (or the lyrics),
+    -- the song and how far it has got. The pad still works it: up/down pick
+    -- a song in the queue below (the second screen shows the pick), A plays
+    -- the pick or pauses, left/right seek.
+    local function draw_showcase(c, st, here, lyr)
+        local BIG = math.min(540, ui.H - 228)
+        local top = 100
+        if lyr and M.settings.lyrics then draw_lyrics(c, lyr, st.pos or 0, st.paused, COVER_X, top, BIG, BIG)
+        else
+            picture(c, 20, here, COVER_X, top, BIG, 24)
+            if lyr then draw_lyric_line(c, lyr, st.pos or 0) end
+        end
+        follow_lyrics(lyr, st.pos or 0, st.paused)
+        -- beside it, from the top: the album, the song, the artist; from the
+        -- bottom: X to switch lyrics and cover, what is playing, paused or live
+        local x = COVER_X + BIG + 44
+        local width = ui.W - x - 44
+        ui.text(c, x, top + 16, ui.fit_text(st.album, width, T_ASIDE), T_ASIDE, ui.GREY, 7)
+        scroll.line(c, x, top + 54, width, st.title, 46, ui.WHITE, 7, true)
+        ui.text(c, x, top + 114, ui.fit_text(st.artist, width, T_SUB + 4), T_SUB + 4, ui.GREY, 7)
+        local bottom = top + BIG
+        if lyr then ui.hints(c, x, bottom - 26, { { "X", M.settings.lyrics and "Cover" or "Lyrics" } }, T_HINT) end
+        local info = st.path and audio_info(width)
+        if info then ui.text(c, x, bottom - 86, info, 22, ui.DIM, 4) end
+        if st.live then
+            ui.circle(c, x + 7, bottom - 136, 6, ui.RED)
+            ui.text(c, x + 22, bottom - 136, "LIVE", T_HINT, ui.WHITE, 4, true)
+        elseif st.paused and st.path then
+            ui.icon_pause(c, x + 10, bottom - 136, 18, ui.GREY)
+            ui.text(c, x + 34, bottom - 136, "Paused", T_HINT, ui.GREY, 4)
+        end
+    end
+
     local function draw_playing(cv)
         local c = cv.lines
         local st = M.state()
@@ -1213,6 +1303,7 @@ function M.app()
         header(c, "Now playing", count > 0 and string.format("%d / %d", mp.get_property_number("playlist-pos", 0) + 1, count))
         local COVER = cover_size()
         local lyr = st.path and lyrics.get(st.path)
+        if M.two_screens then draw_showcase(c, st, here, lyr); return end
         if lyr and M.settings.lyrics then draw_lyrics(c, lyr, st.pos or 0, st.paused, COVER_X, COVER_Y, COVER, COVER)
         else
             picture(c, 20, here, COVER_X, COVER_Y, COVER, 22)  -- the album page's overlay: the same picture stays put
@@ -1504,6 +1595,11 @@ function M.app()
             b = function() view = album_back end,
         },
         playing = {
+            x = function()  -- lyrics or the cover
+                if not lyrics.get(mp.get_property("path")) then show_note("No lyrics for this song"); return end
+                M.action("lyrics")
+                if M.publish then M.publish() end
+            end,
             left = function()
                 if zone == "controls" then control = math.max(1, control - 1)
                 elseif zone == "progress" then M.action("seek", -10) end
@@ -1552,6 +1648,43 @@ function M.app()
             end,
         },
     }
+    -- The player with a second screen (see draw_showcase): the pad picks in
+    -- the queue shown down there, and wakes that screen to show it.
+    M.queue_mark = function() return view == "playing" and zone == "queue" and queue_sel or nil end
+    local function pick(step)
+        local n = mp.get_property_number("playlist-count", 0)
+        if n == 0 then return end
+        local cur = mp.get_property_number("playlist-pos", 0)
+        queue_sel = math.max(0, math.min(n - 1, (zone == "queue" and queue_sel or cur) + step))
+        zone, M.queue_view = "queue", nil
+        mp.set_property("user-data/handheld/req", utils.format_json({ wake = true, t = mp.get_time() }))
+        if M.publish then M.publish() end
+    end
+    local showcase_keys = {
+        x = keys.playing.x,
+        left = function() M.action("seek", -10) end,
+        right = function() M.action("seek", 10) end,
+        up = function() pick(-1) end,
+        down = function() pick(1) end,
+        a = function()
+            local cur = mp.get_property_number("playlist-pos", 0)
+            if zone == "queue" and queue_sel and queue_sel ~= cur then
+                mp.set_property_number("playlist-pos", queue_sel)
+                mp.set_property_native("pause", false)
+            else pause() end
+            queue_sel, zone = nil, "controls"
+            if M.publish then M.publish() end
+        end,
+        b = function()
+            if zone == "queue" then
+                queue_sel, zone = nil, "controls"  -- (the pick goes; B again leaves)
+                if M.publish then M.publish() end
+                return
+            end
+            view = (came_from == "playing") and "library" or came_from
+        end,
+    }
+
     local NO_REPEAT = { a = true, x = true, y = true, b = true }
     -- a direction held down: 1 album a step, then 3, then 8
     local held, repeats = nil, 0
@@ -1601,26 +1734,32 @@ function M.app()
         if kind == "repeat" and NO_REPEAT[key] then return end
         if kind == "repeat" and key == held then repeats = repeats + 1 else held, repeats = key, 0 end
         step = repeats < 6 and 1 or repeats < 16 and 3 or 8
-        local fn = keys[view][key]
+        local fn = (view == "playing" and M.two_screens and showcase_keys[key]) or keys[view][key]
         if fn then fn(); draw() end
     end)
 
     -- state for the touch player on the second screen
     local last
     local function publish()
-        local json = utils.format_json(M.state())
+        local json = utils.format_json(M.state(true))
         if json ~= last then last = json; mp.set_property("user-data/handheld/state", json) end
     end
+    M.publish = publish
     mp.add_periodic_timer(1, publish)
     mp.add_timeout(0.05, publish)  -- the remote is waiting for its first state
 
     mp.register_script_message("handheld-action", function(name, a, b)
         M.action(name, a ~= "" and a or nil, b ~= "" and b or nil)
         mp.add_timeout(0.05, publish)  -- answer a tap at once, not on the next tick
+        if view == "playing" then draw() end  -- (the lyrics switched on or off)
     end)
 
     -- the "playing" marks follow the current track
-    mp.observe_property("path", "string", function() queue_sel = nil; draw() end)
+    mp.observe_property("path", "string", function()
+        queue_sel, M.queue_view = nil, nil
+        if zone == "queue" then zone = "controls" end
+        draw()
+    end)
     mp.observe_property("pause", "bool", function() draw() end)  -- (paused from outside too: headphones out)
     -- the player's progress, and the clock everywhere (on the minute)
     local minute = os.date("%M")

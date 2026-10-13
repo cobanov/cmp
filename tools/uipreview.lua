@@ -32,6 +32,17 @@ local mp = {
     osd_message = function() end,
 }
 package.preload["mp"] = function() return mp end
+-- what the touch code's helpers (covers, lyrics, tags) need from mp.utils
+package.preload["mp.utils"] = function()
+    return {
+        split_path = function(p) return p:match("^(.*/)") or "", p:match("([^/]*)$") end,
+        join_path = function(a, b) return a:sub(-1) == "/" and a .. b or a .. "/" .. b end,
+        file_info = function(p) local f = io.open(p, "rb"); if f then f:close(); return { is_file = true } end end,
+        readdir = function() return {} end,
+        parse_json = function() return nil end,
+        format_json = function() return "{}" end,
+    }
+end
 local st = dofile(state_json)  -- a Lua file returning the state table
 assert(st, "bad state json")
 -- VIEW: controls | intro | settings[:TAB] | guide (touch screen)

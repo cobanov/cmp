@@ -135,9 +135,84 @@ local function draw_music(st)
     pill_row(c, pills)
 end
 
+-- The remote of the music player on the main screen. That screen shows what
+-- is playing, so this one holds the controls and the queue: tap a song to
+-- play it, drag the list to scroll. The pad's pick in the queue shows here.
+local Q_TOP, Q_ROW, Q_ROWS = 320, 72, 4
+local queue_first   -- the first row after a finger scrolled the list; nil: it follows
+local queue_follow  -- what it follows: the pad's pick, else the song playing
+local queue_drag    -- { x, y, first, moved } while a finger is on the list
+
+-- (the state carries a stretch of the queue: queue_start is its first row,
+-- queue_count the whole queue; rows are 0-based like mpv's playlist)
+local function queue_top(st)
+    local n = st.queue_count or 0
+    local at = st.queue_sel or st.queue_pos or 0
+    if at ~= queue_follow then queue_follow, queue_first = at, nil end
+    return math.max(0, math.min(queue_first or at - 1, n - Q_ROWS)), n
+end
+
+local function draw_remote_music(st)
+    local c = cv.lines
+    show_cover(nil)
+    local first, n = queue_top(st)
+    ui.text(c, 44, 48, "Queue", 28, ui.WHITE, 4, true)
+    if n > 0 then
+        ui.text(c, 62 + ui.width("Queue", 28, true), 50, string.format("%d / %d", (st.queue_pos or 0) + 1, n), 22, ui.GREY, 4)
+    end
+    -- lyrics or the cover on the main screen (lit while the lyrics show,
+    -- dim when the song has none), and quit
+    local has = st.has_lyrics
+    ui.icon_mic(c, 870, 48, 30, not has and ui.DIM or (st.lyrics_on and ui.ACCENT or ui.GREY))
+    if has then ui.hit(cv, 820, 8, 100, 80, "toggle-lyrics") end
+    ui.circle(c, 966, 48, 30, ui.RAISED)
+    ui.text(c, 966, 48, "✕", 28, ui.WHITE, 5)
+    ui.hit(cv, 926, 8, 80, 80, "quit")
+    -- the transport, with shuffle and repeat at its sides
+    local cy = 158
+    local rep = st["repeat"] or "Off"
+    local function toggle(x, on, draw_icon, name)
+        draw_icon(x, on and ui.ACCENT or ui.GREY)
+        if on then ui.circle(c, x, cy + 34, 4, ui.ACCENT) end  -- the "on" dot
+        ui.hit(cv, x - 60, cy - 50, 120, 100, name)
+    end
+    toggle(132, st.shuffle, function(x, col) ui.icon_shuffle(c, x, cy, 40, col) end, "shuffle")
+    toggle(892, rep ~= "Off", function(x, col) ui.icon_repeat(c, x, cy, 40, col, rep == "One") end, "repeat")
+    ui.icon_skip(c, 322, cy, 38, st.has_prev and ui.WHITE or ui.DIM, false)
+    ui.hit(cv, 262, cy - 60, 120, 120, "prev")
+    ui.circle(c, 512, cy, 66, ui.WHITE)
+    if st.paused then ui.icon_play(c, 518, cy, 50, ui.PANEL) else ui.icon_pause(c, 512, cy, 46, ui.PANEL) end
+    ui.hit(cv, 436, cy - 76, 152, 152, "pause")
+    ui.icon_skip(c, 702, cy, 38, st.has_next and ui.WHITE or ui.DIM, true)
+    ui.hit(cv, 642, cy - 60, 120, 120, "next")
+    progress(c, st, 266)
+    -- the queue
+    local start = st.queue_start or 0
+    for i = first, math.min(n - 1, first + Q_ROWS - 1) do
+        local y = Q_TOP + (i - first) * Q_ROW
+        local mid = y + (Q_ROW - 8) / 2
+        local now = i == st.queue_pos
+        local name, id = (st.queue or {})[i - start + 1], (st.queue_ids or {})[i - start + 1]
+        if i == st.queue_sel then ui.rect(c, BAR_X - 24, y, BAR_W + 48, Q_ROW - 8, 16, ui.RAISED) end
+        ui.text(c, BAR_X, mid, now and "♪" or tostring(i + 1), 24, now and ui.ACCENT or ui.DIM, 4)
+        -- (scrolled past the stretch the state carries: the name comes with the next state)
+        ui.text(c, BAR_X + 60, mid, ui.fit_text(name or "…", BAR_W - 70, 28), 28, now and ui.ACCENT or ui.WHITE, 4)
+        if id then ui.hit(cv, BAR_X - 24, y, BAR_W + 48, Q_ROW - 8, "queue-play", id) end
+    end
+    if n == 0 then ui.text(c, ui.W / 2, Q_TOP + Q_ROWS * Q_ROW / 2, "The queue is empty", 26, ui.DIM, 5) end
+    pill_row(c, {
+        { nil, "Play in background", "to-bottom" },
+        { "Stay on", st.keep_on and "On" or "Off", "setting", "stay-on" },
+        { nil, "Settings", "settings" },
+    })
+end
+
 local function draw_controls(st)
     local c = cv.lines
-    if st and st.kind == "music" then draw_music(st); return end
+    if st and st.kind == "music" then
+        if remote then draw_remote_music(st) else draw_music(st) end
+        return
+    end
     show_cover(nil)
     if not remote then ui.rect(c, 0, 0, ui.W, ui.H, 0, "000000", 0x58) end
     if not st then return end  -- the player is still starting; it says what to show
@@ -340,6 +415,7 @@ end
 function T.hide()
     intro = false
     scrolling = false
+    queue_drag, queue_first = nil, nil
     down = nil
     if idle_timer then idle_timer:kill(); idle_timer = nil end
     drag = nil
@@ -410,10 +486,41 @@ local function end_scroll()
     end
 end
 
+-- The remote's queue: a finger that moves scrolls it a row at a time, one
+-- that lifts where it landed taps the song.
+local function in_queue(y)
+    local st = remote and view == "controls" and backend.state()
+    return st and st.kind == "music" and y >= Q_TOP and y < Q_TOP + Q_ROWS * Q_ROW
+end
+
+local function queue_move(y)
+    local d = queue_drag.y - y
+    if math.abs(d) < 24 and not queue_drag.moved then return end
+    queue_drag.moved = true
+    local n = (backend.state() or {}).queue_count or 0
+    local first = math.max(0, math.min(queue_drag.first + math.floor(d / Q_ROW + 0.5), n - Q_ROWS))
+    if first ~= queue_first then queue_first = first; draw_soon() end
+end
+
+local function queue_release()
+    local qd = queue_drag
+    queue_drag, down = nil, nil
+    arm_idle()
+    if qd.moved then
+        if queue_first then backend.action("queue-view", queue_first) end  -- the names around where the list was left
+    else
+        local hit = ui.find_hit(cv, qd.x, qd.y)
+        if hit then run(hit)
+        elseif not keep_on() then T.hide() end  -- (an empty spot, as anywhere else)
+    end
+end
+
 local function on_down(x, y)
     down = { x = x, y = y, t = mp.get_time() }
     if idle_timer then idle_timer:kill(); idle_timer = nil end  -- not while a finger is down
-    if view == "library" and L.in_list(y) then
+    if in_queue(y) then
+        queue_drag = { x = x, y = y, first = (queue_top(backend.state())), moved = false }
+    elseif view == "library" and L.in_list(y) then
         scrolling = true
         L.press(y)
     elseif view == "controls" then
@@ -444,6 +551,10 @@ end
 
 local function on_up(x, y)
     arm_idle()
+    if queue_drag then
+        if not finger_down() then queue_release() end
+        return
+    end
     if drag then
         if not finger_down() then end_drag() end
         return
@@ -494,6 +605,10 @@ function T.init(b, is_remote, always_on)
     mp.add_forced_key_binding("MBTN_LEFT_DBL", "handheld-touch-dbl", function() end)
     mp.observe_property("touch-pos", "native", function(_, t)
         local held = type(t) == "table" and #t > 0
+        if queue_drag then
+            if held then queue_move(select(2, canvas_pos())) else queue_release() end
+            return
+        end
         if scrolling then
             if not held then end_scroll()
             elseif L.move(select(2, canvas_pos())) then draw_soon() end
@@ -504,7 +619,8 @@ function T.init(b, is_remote, always_on)
     end)
     mp.observe_property("mouse-pos", "native", function()
         if finger_down() then return end  -- touch-pos has it
-        if scrolling then
+        if queue_drag then queue_move(select(2, canvas_pos()))
+        elseif scrolling then
             if L.move(select(2, canvas_pos())) then draw_soon() end
         elseif drag then on_move((canvas_pos())) end
     end)
