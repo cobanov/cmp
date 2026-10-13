@@ -38,14 +38,19 @@ package.preload["mp.utils"] = function()
         split_path = function(p) return p:match("^(.*/)") or "", p:match("([^/]*)$") end,
         join_path = function(a, b) return a:sub(-1) == "/" and a .. b or a .. "/" .. b end,
         file_info = function(p) local f = io.open(p, "rb"); if f then f:close(); return { is_file = true } end end,
-        readdir = function() return {} end,
+        readdir = function(p)
+            local t, h = {}, io.popen('ls "' .. p .. '" 2>/dev/null')
+            for l in h:lines() do t[#t + 1] = l end
+            h:close()
+            return t
+        end,
         parse_json = function() return nil end,
         format_json = function() return "{}" end,
     }
 end
 local st = dofile(state_json)  -- a Lua file returning the state table
 assert(st, "bad state json")
--- VIEW: controls | intro | settings[:TAB] | guide (touch screen)
+-- VIEW: controls | intro | settings[:TAB] | guide | level[:1 volume|:2 brightness] (touch screen)
 --       bgcontrols | library | albumpage[:N] (the background music player)
 --       pad[:TAB[:ROW]] | padguide (the pad's settings on the main screen)
 local name, n1, n2 = view:match("^(%a+):?(%d*):?(%d*)$")
@@ -94,6 +99,8 @@ else
         key_fn({ event = "down" }); key_fn({ event = "up" })
     end
     if name == "intro" then touch.intro() else touch.show("controls") end
+    if name == "level" then tap(n1 == 2 and 690 or 780, 48) end  -- level:1 volume, level:2 brightness
+    if name == "vlevel" then tap(n1 == 2 and 600 or 690, 48) end  -- the same over a video
     if name == "library" or name == "albumpage" then
         tap(176, 666)                       -- the Library pill
         if name == "albumpage" then tap(500, 96 + (n1 - 0.5) * 120) end  -- album n1

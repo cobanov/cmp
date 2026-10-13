@@ -238,6 +238,7 @@ EVIOCGSW = 0x8008451B   # the switches' states, 8 bytes
 SCREEN_NOTE = "/run/cmp-screen-off"  # backlights turned off, for es/Music.sh to restore
 UNLOCK_HOLD = 1.0   # s Y is held to unlock
 STOPPED_GRACE = 3.0  # s the music may be stopped (a track change) before it counts
+WAKE_TAPS_WITHIN = 0.5  # s between the two taps that wake the dark second screen
 
 
 def input_devices():
@@ -534,9 +535,13 @@ EV_KEY, EV_ABS = 1, 3
 BUTTONS = {
     304: "b", 305: "a", 307: "x", 308: "y",          # SOUTH EAST NORTH WEST (Nintendo labels)
     310: "l1", 311: "r1", 312: "l2", 313: "r2",
-    314: "select", 315: "start",
+    314: "select", 315: "start", 317: "l3", 318: "r3",
     544: "up", 545: "down", 546: "left", 547: "right",
 }
+# Analog triggers as L2/R2: InputPlumber's virtual pad (ROCKNIX next) sends the
+# triggers only as ABS_Z / ABS_RZ, never as buttons. An axis counts as a
+# trigger when it rests at its low end (a stick rests in the middle).
+TRIGGERS = {2: "l2", 5: "r2"}
 STICKS = {0: ("lstick_left", "lstick_right"), 1: ("lstick_up", "lstick_down"),
           3: ("rstick_left", "rstick_right"), 4: ("rstick_up", "rstick_down")}
 HATS = {16: ("left", "right"), 17: ("up", "down")}
@@ -647,18 +652,20 @@ class TouchWatch:
         self.fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK) if path else None
 
     def touched(self):
+        """How many fingers came down since the last read."""
         try:
             data = os.read(self.fd, EVENT.size * 64)
         except BlockingIOError:
-            return False
+            return 0
         except OSError:
             self.close()  # the device went away
-            return False
+            return 0
+        downs = 0
         for i in range(0, len(data) - EVENT.size + 1, EVENT.size):
             _, _, etype, code, value = EVENT.unpack_from(data, i)
             if etype == EV_KEY and code == 330 and value == 1:  # BTN_TOUCH down
-                return True
-        return False
+                downs += 1
+        return downs
 
     def close(self):
         if self.fd is not None:
@@ -673,6 +680,9 @@ class Pad:
         self.send = send   # send(key, repeat)
         self.devices = {}    # fd -> (key code -> name, axis -> (min, max)), one per pad device
         self.paths = {}      # fd -> its /dev/input path
+        self.triggers = {}   # fd -> analog trigger axis -> (min, max), read as L2/R2
+        self.pulled = set()  # (fd, axis) of triggers pressed now
+        self.last_l2r2 = {}  # "l2"/"r2" -> when it was last pressed, from a button or an axis
         self.held = {}       # key -> next repeat time
         self.stick_dir = {}  # (fd, axis) -> key held by that axis
         self.shoulders = {}  # shoulder held -> whether it still sends itself on release
@@ -702,27 +712,41 @@ class Pad:
             mapped = es_buttons(fd, name)
             # ES's names for its buttons; the fixed table for anything ES leaves out
             buttons = {**{c: k for c, k in BUTTONS.items() if k not in (mapped or {}).values()}, **(mapped or {})}
-            ranges = {}
-            for code in STICKS:
+            ranges, triggers = {}, {}
+            for code in list(STICKS) + list(TRIGGERS):
                 buf = bytearray(24)
                 try:
                     fcntl.ioctl(fd, 0x80184540 + code, buf)  # EVIOCGABS(code)
                 except OSError:
                     continue
-                _, lo, hi, _, _, _ = struct.unpack("6i", buf)
+                value, lo, hi, _, _, _ = struct.unpack("6i", buf)
+                if hi <= lo:
+                    continue
+                if code in TRIGGERS:
+                    if value - lo <= (hi - lo) * 0.1:
+                        triggers[code] = (lo, hi)
+                    continue
                 ranges[code] = (lo, hi)
             self.devices[fd] = (buttons, ranges)
+            self.triggers[fd] = triggers
             self.paths[fd] = path
 
     def close(self):
         for fd in self.devices:
             os.close(fd)
         self.devices, self.paths, self.held, self.stick_dir, self.shoulders, self.down = {}, {}, {}, {}, {}, {}
+        self.triggers, self.pulled = {}, set()
 
     def timeout(self):
         return max(0.0, min(self.held.values()) - time.monotonic()) if self.held else None
 
     def _press(self, key):
+        if key in ("l2", "r2"):
+            # a pad may send a trigger both as a button and as an axis: count it once
+            now = time.monotonic()
+            if now - self.last_l2r2.get(key, 0) < 0.15:
+                return
+            self.last_l2r2[key] = now
         if key in SHOULDERS:
             if SHOULDERS[key] in self.shoulders:
                 self.shoulders[key] = self.shoulders[SHOULDERS[key]] = False  # (the other pair keeps its state)
@@ -773,6 +797,17 @@ class Pad:
                     if key:
                         self.stick_dir[axis] = key
                         self._press(key)
+            elif etype == EV_ABS and code in self.triggers.get(fd, {}):
+                lo, hi = self.triggers[fd][code]
+                pos, axis, key = (value - lo) / (hi - lo), (fd, code), TRIGGERS[code]
+                if pos > 0.5 and axis not in self.pulled:
+                    self.pulled.add(axis)
+                    self.down[key] = time.monotonic()
+                    self._press(key)
+                elif pos < 0.25 and axis in self.pulled:
+                    self.pulled.discard(axis)
+                    self.down.pop(key, None)
+                    self._release(key)
             elif etype == EV_ABS and code in HATS:
                 for key in HATS[code]:
                     self._release(key)
@@ -869,6 +904,11 @@ def run_player(main_sock=MAIN_SOCK):
         if locked():
             return  # buttons are locked while the screen is off
         main.send(["script-message", "handheld", key] + (["repeat"] if repeat else []))
+        # in the music player a button wakes the second screen too, or keeps it on
+        # (not Y: it turns the screens off). Over a video the buttons only drive
+        # the video: seeking would light the touch screen every time.
+        if guard and second and remote.sock and not repeat and key != "y":
+            remote_lit()
 
     def wake_remote():
         nonlocal awake
@@ -876,6 +916,23 @@ def run_player(main_sock=MAIN_SOCK):
         remote.send(["script-message", "handheld-wake"])
         if state:
             remote.send(["script-message", "handheld-state", state])
+
+    def remote_lit():
+        """Show the second screen, or start its turn-off timer again if it shows.
+        Whether it shows is asked of sway, not kept here: something else (an
+        ES reload) can turn the output off behind the hub's back."""
+        nonlocal awake
+        if awake and sway.powered(second) is not False:
+            remote.send(["script-message", "handheld-wake", "poke"])
+            return
+        awake = True
+        screen.on()
+        remote.send(["script-message", "handheld-wake"])
+        if state:
+            remote.send(["script-message", "handheld-state", state])
+
+    last_tap = 0.0  # the first tap of the double tap that wakes the dark second screen
+    wake_taps = 1   # the players' "Wake the touch screen with" setting (1 or 2), from their state
 
     pad = Pad(send_key)
 
@@ -938,14 +995,17 @@ def run_player(main_sock=MAIN_SOCK):
                     if was and not guard.locked and second:
                         wake_remote()
                 elif touch and f == touch.fd:
-                    # only needed when the output is off: sway then keeps touches to itself
-                    if touch.touched() and not awake and not locked() and remote.sock \
-                            and sway.powered(second) is False:
-                        awake = True
-                        screen.on()
-                        remote.send(["script-message", "handheld-wake"])
-                        if state:
-                            remote.send(["script-message", "handheld-state", state])
+                    # only needed when the output is off: sway then keeps touches to itself.
+                    # A tap wakes it, or a double tap when the players say so (then a hand resting on the dark screen does not).
+                    downs = touch.touched()
+                    if downs and not locked() and remote.sock and sway.powered(second) is False:
+                        now = time.monotonic()
+                        if wake_taps == 1 or downs > 1 or now - last_tap <= WAKE_TAPS_WITHIN:
+                            last_tap = 0.0
+                            awake = False
+                            remote_lit()
+                        else:
+                            last_tap = now
                 elif f is main.sock:
                     evs = main.read()
                     if evs is None:
@@ -981,6 +1041,8 @@ def run_player(main_sock=MAIN_SOCK):
                                 info, keep = {}, None
                             if guard and isinstance(info, dict) and "paused" in info:
                                 guard.set_playing(not info["paused"])
+                            if isinstance(info, dict) and info.get("wake_taps") in (1, 2):
+                                wake_taps = info["wake_taps"]
                             # asleep, the remote only needs to hear that "Stay on" changed
                             if state and (awake or keep != last_keep):
                                 remote.send(["script-message", "handheld-state", state])

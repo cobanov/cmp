@@ -2,21 +2,29 @@
 
 All notable changes to CMP. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org).
 
-## [0.4.0] - 2026-10-13
+## [0.4.0] - 2026-10-14
 
 ### Added
 
 - **Two screens, two jobs.** On a dual-screen device the main screen's player is now a showcase: the cover or the lyrics, big, with the song, the album and the artist beside them. The touch screen is the remote: the controls, a progress bar to drag, and the queue, where a tap plays a song and a finger scrolls the list. On the main screen ↑↓ pick a song in that queue (the touch screen lights up to show the pick), A plays it, ←→ seek. One-screen devices keep the player as it was.
 - **X switches between the lyrics and the cover** in Now playing, on any device. The hint shows next to the song when it has lyrics.
+- **The clock and the battery on the touch remote**, in its top row.
+- **Volume and brightness on the touch remote.** The speaker and the sun at the top open a slider in place of the queue: the volume, and the brightness of each screen, apart or together with Sync. They set ROCKNIX's own volume and brightness, so the hardware keys and EmulationStation agree with them.
+- **Waking the touch screen:** a tap wakes it, or a double tap (Settings: Wake the touch screen with), which also turns it off again, so a hand resting on the dark screen does not light it. In the music player any button wakes it too (Y aside, which turns the screens off). Touch screen turns off after: 5, 10 or 20 s.
+- **Video player (experimental):** the same remote, and new buttons. L2 R2 jump between the chapters (the opening, the parts, the ending; a minute in a file without chapters), the left stick seeks 30 s and 5 minutes, L3 sets the speed, R3 shows or hides the subtitles.
 
 ### Changed
 
+- **Keep touch screen on is off by default** in the music player, as in the video player: the touch screen turns off after a few seconds and a tap brings it back, which saves the battery.
 - **Packaged installs:** the launcher finds the player's files next to itself (a distribution can ship them in `/usr/share/cmp` and link the launcher anywhere), and "Open player" on the second screen starts the EmulationStation entry the player was opened from, whatever it is called.
 - The touch remote's microphone now switches the main screen between the lyrics and the cover. The lyrics page on the touch screen stays for the background player.
 
 ### Fixed
 
 - **Pads made of several devices:** the hub reads every pad device it finds, not only the first, and picks up one that comes up later. Without InputPlumber the RG DS Plus has its buttons and its sticks on two devices, and the buttons did nothing.
+- **L2 R2 did nothing with InputPlumber** (ROCKNIX next): its virtual pad sends the triggers only as analog axes, which the hub now reads.
+- **The touch screen stayed dark** after something else turned it off (an EmulationStation reload): the hub asks sway whether it is on rather than trusting its own note.
+- A touch that reached the main screen opened mpv's own controls there for a moment, and a double tap switched it out of fullscreen: the main screen's player now ignores the mouse.
 
 ## [0.3.0] - 2026-10-12
 

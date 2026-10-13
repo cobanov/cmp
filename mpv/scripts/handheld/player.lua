@@ -5,6 +5,7 @@
 local mp = require "mp"
 local utils = require "mp.utils"
 local S = require "settings"
+local levels = require "levels"
 
 local P = {}
 
@@ -13,7 +14,8 @@ local PERSISTED = { "sub-scale", "sub-outline-size", "sub-shadow-offset", "sub-b
 local HUB = mp.get_opt("handheld-hub") or "/storage/.config/mpv/media-hub.py"  -- set by the launcher
 local ES_API = "http://127.0.0.1:1234"
 
-P.opts = { autoplay = true, remote_on = false }
+P.opts = { autoplay = true, remote_on = false, remote_sleep = 5, wake_taps = 1 }
+local REMOTE_SLEEPS = { 5, 10, 20 }
 P.deleted_any = false
 
 local function clamp(v, lo, hi) return math.max(lo, math.min(hi, v)) end
@@ -23,6 +25,8 @@ function P.save()
     for _, p in ipairs(PERSISTED) do data[p] = mp.get_property_native(p) end
     data.autoplay = P.opts.autoplay
     data.remote_on = P.opts.remote_on
+    data.remote_sleep = P.opts.remote_sleep
+    data.wake_taps = P.opts.wake_taps
     local f = io.open(SAVE_FILE, "w")
     if f then f:write(utils.format_json(data)); f:close() end
 end
@@ -38,6 +42,8 @@ function P.load()
     end
     if data.autoplay ~= nil then P.opts.autoplay = data.autoplay end
     if data.remote_on ~= nil then P.opts.remote_on = data.remote_on end
+    if tonumber(data.remote_sleep) then P.opts.remote_sleep = tonumber(data.remote_sleep) end
+    if data.wake_taps == 1 or data.wake_taps == 2 then P.opts.wake_taps = data.wake_taps end
 end
 
 -- Tracks ------------------------------------------------------------------
@@ -141,6 +147,18 @@ P.TABS = {
           on = function() return P.opts.remote_on end,
           value = function() return P.opts.remote_on and "On" or "Off" end,
           change = function() P.opts.remote_on = not P.opts.remote_on end },
+        { key = "remote-sleep", label = "Touch screen turns off after", kind = "choice", persist = true,
+          hidden = function() return on_bottom or not (os.getenv("SDL_VIDEO_DISPLAY_PRIORITY") or ""):find(",") end,
+          value = function() return P.opts.remote_sleep .. " s" end,
+          change = function(dir)
+              local i = 1
+              for k, v in ipairs(REMOTE_SLEEPS) do if v == P.opts.remote_sleep then i = k end end
+              P.opts.remote_sleep = REMOTE_SLEEPS[(i - 1 + (dir or 1)) % #REMOTE_SLEEPS + 1]
+          end },
+        { key = "wake-taps", label = "Wake the touch screen with", kind = "choice", persist = true,
+          hidden = function() return on_bottom or not (os.getenv("SDL_VIDEO_DISPLAY_PRIORITY") or ""):find(",") end,
+          value = function() return P.opts.wake_taps == 1 and "One tap" or "Double tap" end,
+          change = function() P.opts.wake_taps = P.opts.wake_taps == 1 and 2 or 1 end },
     } },
     { title = "More", rows = {
         { key = "prev", label = "Previous episode", kind = "action", close = true,
@@ -282,7 +300,13 @@ function P.state()
         has_prev = P.neighbour(-1) ~= nil,
         has_next = P.neighbour(1) ~= nil,
         keep_on = P.opts.remote_on,
+        remote_sleep = P.opts.remote_sleep,
+        wake_taps = P.opts.wake_taps,
         settings = S.snapshot(P.TABS),
+        volume = levels.get().volume,
+        brightness_top = levels.get().top,
+        brightness_bottom = levels.get().bottom,
+        brightness_sync = levels.get().sync,
     }
 end
 
@@ -299,6 +323,8 @@ function P.action(name, a, b)
     elseif name == "next" then P.open_neighbour(1)
     elseif name == "to-bottom" then P.to_bottom()
     elseif name == "to-top" then P.to_top()
+    elseif name == "level" then levels.set(a, b)  -- the remote's volume or brightness slider
+    elseif name == "level-sync" then levels.set_sync(a == "on")
     elseif name == "quit" then mp.command("quit")
     end
 end

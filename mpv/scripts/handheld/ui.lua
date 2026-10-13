@@ -254,6 +254,43 @@ function ui.icon_radio(c, cx, cy, s, color)
 end
 
 -- A crescent moon of radius r: a circle with a circle of the background cut out.
+-- A ring clipped to its right side: a sound wave.
+function ui.arc_right(c, cx, cy, r, thick, color, from)
+    local x0 = math.floor(cx + r * (from or 0.45))
+    c[#c + 1] = string.format("{\\an7\\pos(0,0)\\clip(%d,%d,%d,%d)\\bord%d\\shad0\\1a&HFF&\\3c&H%s&\\3a&H00&\\p1}%s{\\p0}",
+        x0, cy - r - thick, cx + r + thick, cy + r + thick, thick, color, rr_path(cx - r, cy - r, 2 * r, 2 * r, r))
+end
+
+-- A speaker with two sound waves.
+function ui.icon_speaker(c, cx, cy, s, color)
+    local bx = cx - s * 0.42
+    ui.rect(c, bx, cy - s * 0.15, s * 0.2, s * 0.3, 2, color)
+    ui.poly(c, color, 0, bx + s * 0.16, cy - s * 0.15, bx + s * 0.44, cy - s * 0.4,
+        bx + s * 0.44, cy + s * 0.4, bx + s * 0.16, cy + s * 0.15)
+    local w = math.max(2, math.floor(s * 0.07 + 0.5))
+    ui.arc_right(c, cx - s * 0.02, cy, s * 0.2, w, color, 0.35)
+    ui.arc_right(c, cx - s * 0.02, cy, s * 0.4, w, color, 0.35)
+end
+
+-- A chain link: two rounded rings through each other.
+function ui.icon_link(c, cx, cy, s, color)
+    local w, h = s * 0.62, s * 0.34
+    local th = math.max(2, math.floor(s * 0.08 + 0.5))
+    ui.outline(c, cx - s * 0.5, cy - h / 2, w, h, h / 2, th, color)
+    ui.outline(c, cx - s * 0.12, cy - h / 2, w, h, h / 2, th, color)
+end
+
+-- A sun: a disc and eight rays.
+function ui.icon_sun(c, cx, cy, s, color)
+    ui.circle(c, cx, cy, s * 0.2, color)
+    local w = math.max(2, s * 0.09)
+    for i = 0, 7 do
+        local a = math.rad(i * 45)
+        ui.line(c, cx + s * 0.32 * math.cos(a), cy + s * 0.32 * math.sin(a),
+            cx + s * 0.46 * math.cos(a), cy + s * 0.46 * math.sin(a), w, color)
+    end
+end
+
 function ui.icon_moon(c, cx, cy, r, color, bg)
     ui.circle(c, cx, cy, r, color)
     ui.circle(c, cx + r * 0.45, cy - r * 0.35, r * 0.8, bg or "000000")

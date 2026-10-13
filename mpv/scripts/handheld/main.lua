@@ -132,28 +132,60 @@ local function episode_key(step)
         step > 0 and "Next" or "Previous", name:gsub("%.[^.]+$", ""), step > 0 and "R1" or "L1"), 2.5)
 end
 
+-- L2/R2: the episode's chapters (opening, parts, ending); a file without any
+-- (most films) moves a minute instead.
+local function chapter_key(step)
+    local n = mp.get_property_number("chapters", 0)
+    if n <= 0 then seek(60 * step); return end
+    mp.commandv("add", "chapter", step)
+    mp.add_timeout(0.15, function()
+        local ch = mp.get_property_number("chapter", 0)
+        local title = mp.get_property("chapter-metadata/title")
+        osd(string.format("Chapter %d / %d", ch + 1, n) .. (title and title ~= "" and (": " .. title) or ""))
+    end)
+end
+
+local SPEEDS = { 1, 1.25, 1.5 }
+local function speed_key()
+    local now, i = mp.get_property_number("speed", 1), 1
+    for k, v in ipairs(SPEEDS) do if math.abs(v - now) < 0.01 then i = k end end
+    mp.set_property_number("speed", SPEEDS[i % #SPEEDS + 1])
+    osd(string.format("Speed %gx", SPEEDS[i % #SPEEDS + 1]))
+end
+
 -- One job per control. Volume stays on the device's own volume keys.
 local playing = {
     a = function() mp.commandv("cycle", "pause"); osd(mp.get_property_native("pause") and "Paused" or "Playing") end,
     b = function() mp.command("show-progress") end,
     x = function() P.step_track("sub", 1); osd("Subtitles: " .. P.track_name(P.current_track("sub"))) end,
     y = function() P.step_track("audio", 1); osd("Audio: " .. P.track_name(P.current_track("audio"))) end,
+    -- the d-pad: short steps, and the opening's length up and down
     left = function() seek(-10) end, right = function() seek(10) end,
     up = function() seek(85) end, down = function() seek(-85) end,
+    -- the left stick: longer steps, and five minutes up and down
+    lstick_left = function() seek(-30) end, lstick_right = function() seek(30) end,
+    lstick_up = function() seek(300) end, lstick_down = function() seek(-300) end,
+    -- (no right stick: InputPlumber reports the RG DS Plus's one stick as both sticks)
     l1 = function() episode_key(-1) end, r1 = function() episode_key(1) end,
+    l2 = function() chapter_key(-1) end, r2 = function() chapter_key(1) end,
+    l3 = speed_key,
+    r3 = function()
+        mp.commandv("cycle", "sub-visibility")
+        osd(mp.get_property_native("sub-visibility") and "Subtitles shown" or "Subtitles hidden")
+    end,
     -- both shoulders together: carry on watching on the second screen
     ["l1+r1"] = function()
         if (os.getenv("SDL_VIDEO_DISPLAY_PRIORITY") or ""):find(",") then P.to_bottom() end
     end,
     select = function() menu.toggle() end,
 }
-local NO_REPEAT = { up = true, down = true }
+local NO_REPEAT = { up = true, down = true, lstick_up = true, lstick_down = true }
+-- in the settings menu the left stick moves like the d-pad
 local STICK = { lstick_up = "up", lstick_down = "down", lstick_left = "left", lstick_right = "right" }
 
 mp.register_script_message("handheld", function(key, kind)
     if key == "start" or key == "select+start" then mp.command("quit"); return end
-    key = STICK[key] or key  -- the left stick mirrors the d-pad; the right stick does nothing
-    if menu.key(key) then return end
+    if menu.key(STICK[key] or key) then return end
     if kind == "repeat" and NO_REPEAT[key] then return end
     local action = playing[key]
     if action then action() end

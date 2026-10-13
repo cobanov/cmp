@@ -12,6 +12,7 @@
 
 local mp = require "mp"
 local utils = require "mp.utils"
+local levels = require "levels"
 local ui = require "ui"
 local S = require "settings"
 local covers = require "covers"
@@ -38,7 +39,8 @@ local SETTINGS_FILE = "/storage/.config/mpv/handheld-music-settings.json"
 
 -- view: the album browser as a "list" or "flow" (Cover Flow)
 -- stay_on: keep the player on the second screen lit, or let it turn off when idle
-M.settings = { view = "flow", stay_on = true, lyrics = true }
+-- remote_sleep: seconds the touch screen stays lit; wake_taps: taps that wake (and turn off) it
+M.settings = { view = "flow", stay_on = false, lyrics = true, remote_sleep = 5, wake_taps = 1 }
 
 local function load_settings()
     local f = io.open(SETTINGS_FILE, "r")
@@ -53,6 +55,8 @@ local function load_settings()
     if data.replaygain == "track" or data.replaygain == "album" then M.settings.replaygain = data.replaygain end
     if tonumber(data.speed) then M.settings.speed = tonumber(data.speed) end
     if type(data.lyrics) == "boolean" then M.settings.lyrics = data.lyrics end
+    if tonumber(data.remote_sleep) then M.settings.remote_sleep = tonumber(data.remote_sleep) end
+    if data.wake_taps == 1 or data.wake_taps == 2 then M.settings.wake_taps = data.wake_taps end
 end
 
 local function save_settings()
@@ -69,6 +73,7 @@ eq.load(M.settings.eq)
 eq.apply()
 crossfade.set(M.settings.crossfade or 0)
 local CROSSFADE = { 0, 2, 4, 6, 8, 10 }
+local REMOTE_SLEEPS = { 5, 10, 20 }
 
 -- No subtitles in the music player: mpv would load a track's .lrc as one
 -- and print its lines at the bottom, over the key hints (the lyrics have
@@ -522,6 +527,19 @@ M.TABS = {
           hidden = function() return not two_screens end,
           on = function() return M.settings.stay_on end, value = function() return M.settings.stay_on and "On" or "Off" end,
           change = function() M.settings.stay_on = not M.settings.stay_on; save_settings() end },
+        { key = "remote-sleep", label = "Touch screen turns off after", kind = "choice",
+          hidden = function() return not two_screens end,
+          value = function() return M.settings.remote_sleep .. " s" end,
+          change = function(dir)
+              local i = 1
+              for k, v in ipairs(REMOTE_SLEEPS) do if v == M.settings.remote_sleep then i = k end end
+              M.settings.remote_sleep = REMOTE_SLEEPS[(i - 1 + (dir or 1)) % #REMOTE_SLEEPS + 1]
+              save_settings()
+          end },
+        { key = "wake-taps", label = "Wake the touch screen with", kind = "choice",
+          hidden = function() return not two_screens end,
+          value = function() return M.settings.wake_taps == 1 and "One tap" or "Double tap" end,
+          change = function() M.settings.wake_taps = M.settings.wake_taps == 1 and 2 or 1; save_settings() end },
         { key = "move", label = in_background and "Open player" or "Play in background", kind = "action", close = true,
           hidden = function() return not two_screens end,  -- the background player lives on the second screen
           run = function() if in_background then M.to_top() else M.to_bottom() end; return "close" end },
@@ -588,6 +606,8 @@ function M.state(for_remote)
         shuffle = M.shuffle,
         ["repeat"] = REPEAT[M.repeat_mode],
         keep_on = M.settings.stay_on,
+        remote_sleep = M.settings.remote_sleep,
+        wake_taps = M.settings.wake_taps,
         settings = S.snapshot(M.TABS),
     }
     -- a station: its name, and the song it announces (if it does)
@@ -604,6 +624,9 @@ function M.state(for_remote)
         queue_window(state, pos)
         state.lyrics_on = M.settings.lyrics  -- lyrics or the cover up there (the remote's microphone switches)
         state.has_lyrics = path and lyrics.get(path) ~= nil  -- (from the tags too: only this process can read them)
+        local lv = levels.get()
+        state.volume, state.brightness_top, state.brightness_bottom = lv.volume, lv.top, lv.bottom
+        state.brightness_sync = lv.sync
     end
     return state
 end
@@ -809,6 +832,12 @@ function M.action(name, a, b)
         end
     elseif name == "queue-view" then  -- a finger scrolled the remote's queue to this row
         M.queue_view = tonumber(a)
+    elseif name == "level" then  -- the remote's volume or brightness slider
+        levels.set(a, b)
+        if M.publish then M.publish() end
+    elseif name == "level-sync" then  -- the remote links or unlinks the screens' brightness
+        levels.set_sync(a == "on")
+        if M.publish then M.publish() end
     elseif name == "setting" then
         local _, result = S.apply(M.TABS, a, tonumber(b) or 1)
         return result
@@ -916,38 +945,7 @@ function M.app()
     -- these handhelds, so 38 units of body text is about 2.5-3 mm.
     local T_TITLE, T_ASIDE, T_ROW, T_SUB, T_HINT = 44, 28, 38, 30, 26
 
-    -- The battery, read at most every 30 s: { pct, charging } or nil.
-    local battery_dir, battery, battery_read = nil, nil, -100
-    local function read_battery()
-        if mp.get_time() - battery_read < 30 then return battery end
-        battery_read = mp.get_time()
-        if not battery_dir then
-            for _, d in ipairs(utils.readdir("/sys/class/power_supply", "dirs") or {}) do
-                local f = io.open("/sys/class/power_supply/" .. d .. "/type", "r")
-                local kind = f and f:read("*l")
-                if f then f:close() end
-                if kind == "Battery" then battery_dir = "/sys/class/power_supply/" .. d; break end
-            end
-            if not battery_dir then battery_dir = false end
-        end
-        if not battery_dir then return nil end
-        local function get(name)
-            local f = io.open(battery_dir .. "/" .. name, "r")
-            local v = f and f:read("*l")
-            if f then f:close() end
-            return v
-        end
-        -- ROCKNIX's batteryplus (on by default) estimates the level from the
-        -- voltage, which is what EmulationStation shows; the fuel gauge's own
-        -- figure is used only without it
-        local f = io.open("/tmp/battery.percent", "r")
-        local pct = f and tonumber(f:read("*l"))
-        if f then f:close() end
-        pct = pct or tonumber(get("capacity"))
-        local state = get("status")
-        battery = pct and { pct = pct, charging = state == "Charging" or state == "Full" } or nil
-        return battery
-    end
+    local read_battery = require("battery").read
 
     -- Top right on every page: the sleep timer while it runs, the clock and
     -- the battery. Returns where it begins, for the title to stop before.

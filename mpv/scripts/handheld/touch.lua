@@ -14,6 +14,7 @@ local ui = require "ui"
 local S = require "settings"
 local L = require "touchlib"
 local lyrics = require "lyrics"
+local battery = require "battery"
 
 local T = {}
 
@@ -27,11 +28,18 @@ local down, drag, last_tap = nil, nil, nil
 local scrolling = false          -- a finger in the library list; a tap there is told apart when it lifts
 local flash = nil                -- { text, side, until }
 local intro = false              -- first showing: say how to bring it back
+local level_kind = nil           -- the remote's open volume/brightness panel: "volume" | "brightness"
+local level_drag = nil           -- { value } while a finger moves its slider
+local level_timer, level_sent = nil, 0
+local wake_tap = nil             -- the first tap of the double tap that wakes the dark remote
+local close_tap = nil            -- the first tap of the double tap that turns it off
 
 local HIDE_AFTER = 4              -- seconds, controls over the video
-local SLEEP_AFTER = 8             -- seconds, remote panel
+local SLEEP_AFTER = 5             -- seconds, remote panel (the players' setting overrides it)
 local INTRO_FOR = 10              -- seconds the remote stays up when a video opens
 local SETTINGS_SLEEP_AFTER = 20
+local LEVEL_CLOSE_AFTER = 5       -- seconds the volume/brightness panel stays without a touch
+local WAKE_TAPS_WITHIN = 0.5      -- seconds between the two taps that wake the remote
 
 -- Layout --------------------------------------------------------------------
 
@@ -152,6 +160,95 @@ local function queue_top(st)
     return math.max(0, math.min(queue_first or at - 1, n - Q_ROWS)), n
 end
 
+-- The volume or brightness sliders, in place of the queue (or the transport).
+local slider_range = {}   -- target -> { x1, x2 } as last drawn
+
+local function level_at(x, target)
+    local r = slider_range[target] or { BAR_X + 128, BAR_X + BAR_W - 128 }
+    return math.floor(math.max(0, math.min(1, (x - r[1]) / (r[2] - r[1]))) * 100 + 0.5)
+end
+
+local LEVEL_FIELD = { volume = "volume", top = "brightness_top", bottom = "brightness_bottom" }
+local function level_value(st, target)
+    if level_drag and (level_drag.target == target or (st and st.brightness_sync
+            and target ~= "volume" and level_drag.target ~= "volume")) then
+        return level_drag.value  -- (synced screens move together)
+    end
+    return (st and st[LEVEL_FIELD[target]]) or 50
+end
+
+local function slider(c, st, target, y, x1, x2)
+    slider_range[target] = { x1, x2 }
+    local dragging = level_drag and level_drag.target == target
+    local frac = level_value(st, target) / 100
+    ui.rect(c, x1, y - 7, x2 - x1, 14, 7, ui.TRACK)
+    ui.rect(c, x1, y - 7, math.max(14, (x2 - x1) * frac), 14, 7, ui.ACCENT)
+    ui.circle(c, x1 + (x2 - x1) * frac, y, dragging and 26 or 20, ui.WHITE)
+    ui.hit(cv, x1 - 30, y - 40, x2 - x1 + 60, 80, "level-bar", target)
+end
+
+-- top, h: the card's place (the queue's on the music remote, the transport's over a video)
+local function draw_level(c, st, top, h)
+    local x, y, w = BAR_X, top, BAR_W
+    ui.rect(c, x, y, w, h, 24, ui.RAISED)
+    ui.hit(cv, x, y, w, h, "level-keep")  -- (a tap on the card keeps it open)
+    local volume = level_kind == "volume"
+    if volume then ui.icon_speaker(c, BAR_X + 52, y + 56, 40, ui.WHITE)
+    else ui.icon_sun(c, BAR_X + 52, y + 56, 40, ui.WHITE) end
+    ui.text(c, BAR_X + 92, y + 56, volume and "Volume" or "Brightness", 30, ui.WHITE, 4, true)
+    if volume or not (st and st.brightness_bottom) then
+        -- one slider, with steps of 5 at its ends
+        local target = volume and "volume" or "top"
+        ui.text(c, BAR_X + BAR_W - 32, y + 56, level_value(st, target) .. "%", 30, ui.ACCENT, 6, true)
+        local sy = top + 160
+        slider(c, st, target, sy, BAR_X + 128, BAR_X + BAR_W - 128)
+        for _, b in ipairs({ { BAR_X + 62, "−", -5 }, { BAR_X + BAR_W - 62, "+", 5 } }) do
+            ui.circle(c, b[1], sy, 34, ui.PANEL)
+            ui.text(c, b[1], sy - 2, b[2], 38, ui.WHITE, 5, true)
+            ui.hit(cv, b[1] - 44, sy - 44, 88, 88, "level-step", b[3], target)
+        end
+        return
+    end
+    -- two screens, each its own, or linked by Sync
+    for i, row in ipairs({ { "top", "Top screen" }, { "bottom", "Bottom screen" } }) do
+        local sy = top + 60 + i * 80
+        ui.text(c, BAR_X + 32, sy, row[2], 24, ui.GREY, 4)
+        slider(c, st, row[1], sy, BAR_X + 230, BAR_X + BAR_W - 300)
+        ui.text(c, BAR_X + BAR_W - 206, sy, level_value(st, row[1]) .. "%", 26, ui.ACCENT, 6, true)
+    end
+    local sync = st.brightness_sync
+    local bx, by, bw, bh = BAR_X + BAR_W - 172, top + 104, 140, 152
+    ui.rect(c, bx, by, bw, bh, 20, sync and ui.ACCENT or ui.PANEL)
+    ui.icon_link(c, bx + bw / 2, by + 60, 44, sync and ui.WHITE or ui.GREY)
+    ui.text(c, bx + bw / 2, by + 114, "Sync", 22, sync and ui.WHITE or ui.GREY, 5, true)
+    ui.hit(cv, bx, by, bw, bh, "level-sync")
+end
+
+-- The clock and the battery in a remote's top row, ending at x (centred on
+-- y). Returns where they begin.
+local function clock_battery(c, x, y)
+    local b = battery.read()
+    if b then
+        x = x - 44
+        ui.icon_battery(c, x, y - 11, 40, 22, b.pct, b.charging)
+        local pct = b.pct .. "%"
+        x = x - 12
+        ui.text(c, x, y, pct, 22, ui.GREY, 6)
+        x = x - ui.width(pct, 22) - 20
+    end
+    local clock = os.date("%H:%M")
+    ui.text(c, x, y, clock, 26, ui.WHITE, 6)
+    return x - ui.width(clock, 26)
+end
+
+-- The brightness and volume buttons of a remote's top row, ending at x.
+local function level_buttons(c, x)
+    ui.icon_sun(c, x - 90, 48, 40, level_kind == "brightness" and ui.ACCENT or ui.GREY)
+    ui.hit(cv, x - 135, 8, 90, 80, "level-open", "brightness")
+    ui.icon_speaker(c, x, 48, 40, level_kind == "volume" and ui.ACCENT or ui.GREY)
+    ui.hit(cv, x - 45, 8, 90, 80, "level-open", "volume")
+end
+
 local function draw_remote_music(st)
     local c = cv.lines
     show_cover(nil)
@@ -163,6 +260,9 @@ local function draw_remote_music(st)
     -- lyrics or the cover on the main screen (lit while the lyrics show,
     -- dim when the song has none), and quit
     local has = st.has_lyrics
+    clock_battery(c, 610, 48)
+    -- brightness and volume: each opens a slider over the queue
+    level_buttons(c, 780)
     ui.icon_mic(c, 870, 48, 30, not has and ui.DIM or (st.lyrics_on and ui.ACCENT or ui.GREY))
     if has then ui.hit(cv, 820, 8, 100, 80, "toggle-lyrics") end
     ui.circle(c, 966, 48, 30, ui.RAISED)
@@ -186,6 +286,9 @@ local function draw_remote_music(st)
     ui.icon_skip(c, 702, cy, 38, st.has_next and ui.WHITE or ui.DIM, true)
     ui.hit(cv, 642, cy - 60, 120, 120, "next")
     progress(c, st, 266)
+    if level_kind then
+        draw_level(c, st, Q_TOP, Q_ROWS * Q_ROW - 8)
+    else
     -- the queue
     local start = st.queue_start or 0
     for i = first, math.min(n - 1, first + Q_ROWS - 1) do
@@ -200,6 +303,7 @@ local function draw_remote_music(st)
         if id then ui.hit(cv, BAR_X - 24, y, BAR_W + 48, Q_ROW - 8, "queue-play", id) end
     end
     if n == 0 then ui.text(c, ui.W / 2, Q_TOP + Q_ROWS * Q_ROW / 2, "The queue is empty", 26, ui.DIM, 5) end
+    end
     pill_row(c, {
         { nil, "Play in background", "to-bottom" },
         { "Stay on", st.keep_on and "On" or "Off", "setting", "stay-on" },
@@ -217,8 +321,11 @@ local function draw_controls(st)
     if not remote then ui.rect(c, 0, 0, ui.W, ui.H, 0, "000000", 0x58) end
     if not st then return end  -- the player is still starting; it says what to show
 
-    ui.text(c, 44, 40, ui.trim(st.title, remote and 36 or 46), 28, ui.WHITE, 7, true)
+    if not remote then ui.text(c, 44, 40, ui.trim(st.title, 46), 28, ui.WHITE, 7, true) end
     if remote then
+        local left = clock_battery(c, 530, 56)
+        ui.text(c, 44, 40, ui.fit_text(st.title or "", left - 44 - 28, 28, true), 28, ui.WHITE, 7, true)
+        level_buttons(c, 690)
         -- "Stay on": keep this screen lit instead of turning it off after a few seconds
         local sx, sy = 836, 38
         ui.text(c, sx - 14, sy + 17, "Stay on", 21, ui.GREY, 6)
@@ -226,7 +333,7 @@ local function draw_controls(st)
         ui.circle(c, st.keep_on and sx + 50 or sx + 18, sy + 18, 14, ui.WHITE)
         ui.hit(cv, sx - 110, sy - 16, 196, 68, "setting", "remote-on", 1)
         if intro and not st.keep_on then
-            ui.text(c, 44, 90, "This screen turns off after a few seconds. Tap it to bring the controls back,", 19, ui.GREY, 7)
+            ui.text(c, 44, 90, "This screen turns off after a few seconds. " .. (st.wake_taps == 1 and "Tap" or "Double-tap") .. " it to bring the controls back,", 19, ui.GREY, 7)
             ui.text(c, 44, 116, "or switch on Stay on.", 19, ui.GREY, 7)
         end
     end
@@ -234,6 +341,9 @@ local function draw_controls(st)
     ui.text(c, 966, 56, "✕", 28, ui.WHITE, 5)
     ui.hit(cv, 926, 16, 80, 80, "quit")
 
+    if remote and level_kind then
+        draw_level(c, st, 140, 280)  -- in place of the transport while it is open
+    else
     -- transport
     local cy = 330
     local function skip(x, forward, enabled, name)
@@ -250,6 +360,7 @@ local function draw_controls(st)
     ui.circle(c, 512, cy, 82, ui.WHITE)
     if st.paused then ui.icon_play(c, 518, cy, 64, ui.PANEL) else ui.icon_pause(c, 512, cy, 60, ui.PANEL) end
     ui.hit(cv, 420, cy - 92, 184, 184, "pause")
+    end
 
     progress(c, st, BAR_Y)
 
@@ -360,6 +471,12 @@ end
 local function in_settings() return view == "settings" or view == "guide" or view == "about" or view == "library" end
 local function stays() return view == "lyrics" end  -- read while the song plays: no turning off
 
+-- A player setting the remote follows (sent with the state).
+local function setting(name, default)
+    local st = backend and backend.state()
+    return (st and st[name]) or default
+end
+
 -- Stay lit? The remote and the music player follow the viewer's "Stay on";
 -- controls over a video always hide.
 local function keep_on()
@@ -368,9 +485,34 @@ local function keep_on()
     return st ~= nil and st.keep_on == true and (remote or st.kind == "music")
 end
 
+-- The volume/brightness panel closes by itself a few seconds after the last touch.
+local function arm_level()
+    if level_timer then level_timer:kill() end
+    level_timer = mp.add_timeout(LEVEL_CLOSE_AFTER, function()
+        level_timer = nil
+        if level_drag then arm_level(); return end
+        level_kind = nil
+        draw()
+    end)
+end
+
+local function close_level()
+    if level_timer then level_timer:kill(); level_timer = nil end
+    level_kind, level_drag = nil, nil
+end
+
+-- While the slider moves, the setting follows it a few times a second.
+local function send_level(force)
+    local now = mp.get_time()
+    if level_drag and (force or now - level_sent >= 0.12) then
+        level_sent = now
+        backend.action("level", level_drag.target, level_drag.value)
+    end
+end
+
 local function arm_idle(seconds)
     if idle_timer then idle_timer:kill() end
-    local after = seconds or (remote and (in_settings() and SETTINGS_SLEEP_AFTER or SLEEP_AFTER) or HIDE_AFTER)
+    local after = seconds or (remote and (in_settings() and SETTINGS_SLEEP_AFTER or setting("remote_sleep", SLEEP_AFTER)) or HIDE_AFTER)
     idle_timer = mp.add_timeout(after, function()
         if not remote and view == "controls" then
             local st = backend.state()
@@ -414,6 +556,7 @@ end
 
 function T.hide()
     intro = false
+    close_level()
     scrolling = false
     queue_drag, queue_first = nil, nil
     down = nil
@@ -452,6 +595,7 @@ local function frac_at(x)
     return math.max(0, math.min(1, (x - BAR_X) / BAR_W))
 end
 
+
 local function run(hit)
     local name = hit.fn
     if name == "settings" then set_view("settings")
@@ -468,6 +612,18 @@ local function run(hit)
     elseif name == "lib-done" then set_view("controls")
     elseif name:sub(1, 4) == "lib-" then
         if L.tap(hit, backend.action) == "play" then set_view("controls") else draw() end
+    elseif name == "level-open" then
+        if level_kind == hit.data then close_level() else level_kind, level_drag = hit.data, nil; arm_level() end
+        draw()
+    elseif name == "level-step" then
+        local v = math.max(0, math.min(100, level_value(backend.state(), hit.data2) + hit.data))
+        backend.action("level", hit.data2, v)
+        arm_level()
+    elseif name == "level-sync" then
+        local st = backend.state() or {}
+        backend.action("level-sync", st.brightness_sync and "off" or "on")
+        arm_level()
+    elseif name == "level-keep" or name == "level-bar" then arm_level()
     elseif name == "quit" then backend.action("quit"); T.hide()
     elseif name == "to-bottom" or name == "to-top" then backend.action(name)
     else backend.action(name, hit.data) end
@@ -489,7 +645,7 @@ end
 -- The remote's queue: a finger that moves scrolls it a row at a time, one
 -- that lifts where it landed taps the song.
 local function in_queue(y)
-    local st = remote and view == "controls" and backend.state()
+    local st = remote and view == "controls" and not level_kind and backend.state()
     return st and st.kind == "music" and y >= Q_TOP and y < Q_TOP + Q_ROWS * Q_ROW
 end
 
@@ -502,6 +658,22 @@ local function queue_move(y)
     if first ~= queue_first then queue_first = first; draw_soon() end
 end
 
+-- A tap on an empty spot of the remote turns it off: the same way it is woken
+-- (one tap, or a double tap); a single tap alone does nothing in double-tap mode.
+local function empty_tap()
+    if setting("wake_taps", 1) == 1 then
+        if not keep_on() then T.hide() end
+        return
+    end
+    local now = mp.get_time()
+    if close_tap and now - close_tap <= WAKE_TAPS_WITHIN then
+        close_tap = nil
+        T.hide()
+    else
+        close_tap = now
+    end
+end
+
 local function queue_release()
     local qd = queue_drag
     queue_drag, down = nil, nil
@@ -511,7 +683,7 @@ local function queue_release()
     else
         local hit = ui.find_hit(cv, qd.x, qd.y)
         if hit then run(hit)
-        elseif not keep_on() then T.hide() end  -- (an empty spot, as anywhere else)
+        else empty_tap() end  -- (an empty spot, as anywhere else)
     end
 end
 
@@ -525,7 +697,11 @@ local function on_down(x, y)
         L.press(y)
     elseif view == "controls" then
         local hit = ui.find_hit(cv, x, y)
-        if hit and hit.fn == "bar" then
+        if hit and hit.fn == "level-bar" then
+            level_drag = { target = hit.data, value = level_at(x, hit.data) }
+            send_level(true)
+            draw()
+        elseif hit and hit.fn == "bar" then
             drag = { frac = frac_at(x) }
             draw()
         end
@@ -533,7 +709,11 @@ local function on_down(x, y)
 end
 
 local function on_move(x)
-    if drag then
+    if level_drag then
+        level_drag.value = level_at(x, level_drag.target)
+        send_level(false)
+        draw()
+    elseif drag then
         drag.frac = frac_at(x)
         draw()
     end
@@ -542,6 +722,14 @@ end
 -- Seek to where the moves left the knob (at release touch-pos is already
 -- empty and mouse-pos may be stale).
 local function end_drag()
+    if level_drag then
+        send_level(true)
+        level_drag, down = nil, nil
+        arm_level()
+        arm_idle()
+        mp.add_timeout(0.15, draw)
+        return
+    end
     local st = backend.state()
     if st and st.dur and st.dur > 0 then backend.action("seek-to", drag.frac * st.dur) end
     drag, down = nil, nil
@@ -555,7 +743,7 @@ local function on_up(x, y)
         if not finger_down() then queue_release() end
         return
     end
-    if drag then
+    if drag or level_drag then
         if not finger_down() then end_drag() end
         return
     end
@@ -567,7 +755,17 @@ local function on_up(x, y)
     down = nil
 
     if view == "hidden" then
-        if remote then T.show("controls"); return end
+        if remote then
+            -- a double tap wakes it, so a hand resting on the dark screen does not
+            local now = mp.get_time()
+            if setting("wake_taps", 1) == 1 or (wake_tap and now - wake_tap <= WAKE_TAPS_WITHIN) then
+                wake_tap = nil
+                T.show("controls")
+            else
+                wake_tap = now
+            end
+            return
+        end
         -- over the video: one tap shows the controls, a quick second tap on
         -- the left or right third seeks 10 s
         local now = mp.get_time()
@@ -588,8 +786,16 @@ local function on_up(x, y)
     end
 
     local hit = ui.find_hit(cv, x, y)
+    if level_kind and not (hit and hit.fn:sub(1, 6) == "level-") then
+        close_level()
+        arm_idle()
+        draw()
+        return
+    end
     if hit then
         run(hit)
+    elseif view == "controls" and remote then
+        empty_tap()
     elseif view == "controls" and not keep_on() then
         T.hide()
     end
@@ -597,6 +803,15 @@ end
 
 function T.init(b, is_remote, always_on)
     backend, remote, T.always_on = b, is_remote, always_on
+    if remote then
+        -- the remote redraws when the state comes; the clock in its top row moves on the minute too
+        local minute = os.date("%M")
+        mp.add_periodic_timer(5, function()
+            if os.date("%M") == minute then return end
+            minute = os.date("%M")
+            if view ~= "hidden" then draw() end
+        end)
+    end
     mp.add_forced_key_binding("MBTN_LEFT", "handheld-touch", function(e)
         local x, y = canvas_pos()
         if e.event == "down" then on_down(x, y)
@@ -614,7 +829,7 @@ function T.init(b, is_remote, always_on)
             elseif L.move(select(2, canvas_pos())) then draw_soon() end
             return
         end
-        if not drag then return end
+        if not drag and not level_drag then return end
         if held then on_move((canvas_pos())) else end_drag() end
     end)
     mp.observe_property("mouse-pos", "native", function()
@@ -622,7 +837,7 @@ function T.init(b, is_remote, always_on)
         if queue_drag then queue_move(select(2, canvas_pos()))
         elseif scrolling then
             if L.move(select(2, canvas_pos())) then draw_soon() end
-        elseif drag then on_move((canvas_pos())) end
+        elseif drag or level_drag then on_move((canvas_pos())) end
     end)
     if always_on then mp.add_timeout(0.2, function() T.show("controls") end) end
 end

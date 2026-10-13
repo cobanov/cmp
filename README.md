@@ -41,7 +41,7 @@ CMP replaces the music players that ship with handheld firmwares, which were nev
 - **Lyrics, radio and audiobooks.** Timed lyrics from `.lrc` files follow the song, internet stations play from a simple `radio.m3u`, and long tracks remember where you stopped, with bookmarks and a speed control.
 - **Sound your way.** A 10-band equalizer with presets, ReplayGain, crossfade between tracks, and the format, sample rate and bitrate of what is playing.
 - **Sleep timer, clock and battery.** Stop the music after 15 to 90 minutes or at the end of the track, with a gentle fade. The clock and the battery (the same estimate EmulationStation shows) sit at the top of every page.
-- **Two screens, two jobs.** On dual-screen devices the main screen shows what is playing, big: the cover or the lyrics. The touch screen is the remote: the controls, a progress bar to drag and the queue, where a tap plays a song; the pad picks in that queue too. L1 + R1 (or "Play in background") moves the music to the touch screen to keep playing, with its own library and the radio, while you play a game on the main screen.
+- **Two screens, two jobs.** On dual-screen devices the main screen shows what is playing, big: the cover or the lyrics. The touch screen is the remote: the controls, a progress bar to drag and the queue, where a tap plays a song; the pad picks in that queue too. Its speaker and sun set the volume and each screen's brightness (Sync keeps the two screens together), the clock and the battery sit in its top row, and a tap wakes it. L1 + R1 (or "Play in background") moves the music to the touch screen to keep playing, with its own library and the radio, while you play a game on the main screen.
 
 ## Controls
 
@@ -74,7 +74,7 @@ The install goes to `/storage/.config/cmp` and leaves the stock music player in 
 
 Lua scripts for mpv 0.41 with LuaJIT (`mpv/scripts/handheld`) and a Python 3 standard-library hub (`hub/media-hub.py`) that reads the pad, runs the second-screen windows and talks to sway. Covers and Cover Flow are drawn in LuaJIT FFI buffers; text is measured and drawn with libass. `tools/preview.sh` renders screens offscreen on a device. A distribution can ship the files in one folder and link `es/Music.sh` from anywhere: it finds the rest next to itself. Releases follow [semantic versioning](https://semver.org); every change is listed in [CHANGELOG.md](CHANGELOG.md) and `tools/release.sh` cuts a release.
 
-This repository also holds an experimental video player for dual-screen devices (`./install.sh root@<handheld-ip>`), which will get its own polish later.
+This repository also holds an experimental video player for dual-screen devices (`./install.sh root@<handheld-ip>`): the same touch remote, chapters on L2 R2, seeking on the d-pad and the stick. It will get its own polish later.
 
 ---
 
