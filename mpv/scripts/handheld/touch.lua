@@ -323,8 +323,19 @@ local function draw_controls(st)
 
     if not remote then ui.text(c, 44, 40, ui.trim(st.title, 46), 28, ui.WHITE, 7, true) end
     if remote then
-        local left = clock_battery(c, 530, 56)
-        ui.text(c, 44, 40, ui.fit_text(st.title or "", left - 44 - 28, 28, true), 28, ui.WHITE, 7, true)
+        -- the top row: the clock and the battery, then the buttons; the title gets its own lines below
+        local b, clock = battery.read(), os.date("%H:%M")
+        local w = ui.width(clock, 26) + (b and 20 + ui.width(b.pct .. "%", 22) + 12 + 44 or 0)
+        clock_battery(c, 44 + w, 52)
+        -- "Show - 060 - Episode name" (the way the library names episodes): the show and the
+        -- number small, the episode's name big; anything else is the title as it is
+        local show, num, name = (st.title or ""):match("^(.-)%s+%-%s+(%d+)%s+%-%s+(.+)$")
+        if show then
+            ui.text(c, 44, 128, ui.fit_text(show .. "  ·  Episode " .. tonumber(num), ui.W - 88, 24), 24, ui.GREY, 4)
+            ui.text(c, 44, 170, ui.fit_text(name, ui.W - 88, 36, true), 36, ui.WHITE, 4, true)
+        else
+            ui.text(c, 44, 150, ui.fit_text(st.title or "", ui.W - 88, 36, true), 36, ui.WHITE, 4, true)
+        end
         level_buttons(c, 690)
         -- "Stay on": keep this screen lit instead of turning it off after a few seconds
         local sx, sy = 836, 38
@@ -333,8 +344,8 @@ local function draw_controls(st)
         ui.circle(c, st.keep_on and sx + 50 or sx + 18, sy + 18, 14, ui.WHITE)
         ui.hit(cv, sx - 110, sy - 16, 196, 68, "setting", "remote-on", 1)
         if intro and not st.keep_on then
-            ui.text(c, 44, 90, "This screen turns off after a few seconds. " .. (st.wake_taps == 1 and "Tap" or "Double-tap") .. " it to bring the controls back,", 19, ui.GREY, 7)
-            ui.text(c, 44, 116, "or switch on Stay on.", 19, ui.GREY, 7)
+            ui.text(c, 44, 206, "This screen turns off after a few seconds. " .. (st.wake_taps == 1 and "Tap" or "Double-tap") .. " it to bring the controls back,", 19, ui.GREY, 7)
+            ui.text(c, 44, 230, "or switch on Stay on.", 19, ui.GREY, 7)
         end
     end
     ui.circle(c, 966, 56, 30, ui.RAISED, 0x20)
@@ -342,7 +353,7 @@ local function draw_controls(st)
     ui.hit(cv, 926, 16, 80, 80, "quit")
 
     if remote and level_kind then
-        draw_level(c, st, 140, 280)  -- in place of the transport while it is open
+        draw_level(c, st, 214, 272)  -- in place of the transport while it is open
     else
     -- transport
     local cy = 330

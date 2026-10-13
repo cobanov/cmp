@@ -2,6 +2,12 @@
 
 All notable changes to CMP. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+### Changed
+
+- **Video (experimental):** the touch remote's top row has only the clock, the battery and the buttons; the episode gets its own lines below it, the show and the number small, the episode's name big, so the name is no longer cut short.
+
 ## [0.4.0] - 2026-10-14
 
 ### Added

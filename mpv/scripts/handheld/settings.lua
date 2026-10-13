@@ -68,7 +68,7 @@ end
 
 S.ABOUT = {
     name = "CMP",
-    version = "0.4.0",
+    version = "0.4.1-dev",
     tagline = "Console Music Player, for retro handhelds",
     lines = {
         { "Made by", "Mert Cobanov" },
