@@ -62,7 +62,7 @@ SCRIPTS = [] if HERE == os.path.join(os.environ["HOME"], ".config/mpv") else \
 HUB_OPT = f"handheld-hub={os.path.abspath(__file__)}"
 # vo=wlshm: the second-screen windows draw in software, which works on every
 # ROCKNIX device (the RK3566's Vulkan output shows no picture)
-SECOND_SCREEN_MPV = ["mpv", "--fs", "--no-osc", "--no-input-default-bindings", "--vo=wlshm"] + SCRIPTS
+SECOND_SCREEN_MPV = ["mpv", "--fs", "--no-osc", "--no-input-default-bindings", "--vo=wlshm", "--cursor-autohide=always"] + SCRIPTS
 # where a player about to start leaves a note, so the bottom player handing
 # over to it keeps the second screen on (see player_follows)
 FOLLOWS = "/run/handheld-follows"

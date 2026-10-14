@@ -15,6 +15,7 @@ All notable changes to CMP. The format follows [Keep a Changelog](https://keepac
 ### Fixed
 
 - **The touch screen stayed dark now and then when a video or the music opened:** something else can turn the second screen off just after the hub turned it on (a helper that powers it off while only the player's window is open, before the remote's window comes). The hub looks again a moment later and turns it back on.
+- **No mouse pointer over the players:** mpv hides its cursor in every window CMP opens. ROCKNIX's InputPlumber pad on the RG DS Plus comes with a touchpad, which gives sway a cursor that showed for a moment when a player opened or closed.
 
 ## [0.4.0] - 2026-10-14
 

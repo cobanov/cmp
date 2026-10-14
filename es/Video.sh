@@ -33,7 +33,7 @@ MAIN_SCREEN="${SDL_VIDEO_DISPLAY_PRIORITY%%,*}"
 # which works on every ROCKNIX device (the RK3566's Vulkan output shows no
 # picture). Played files remember where they stopped, with their tracks.
 # --load-scripts=no keeps the user's own mpv scripts out of the way.
-/usr/bin/mpv --fullscreen --vo=wlshm --no-osc --sws-fast=yes --sws-scaler=fast-bilinear \
+/usr/bin/mpv --fullscreen --vo=wlshm --no-osc --cursor-autohide=always --sws-fast=yes --sws-scaler=fast-bilinear \
   --sub-ass-override=strip --save-position-on-quit=yes \
   --watch-later-dir=/storage/.config/mpv/watch_later --watch-later-options=start,sid,aid,sub-delay \
   --input-ipc-server="${SOCK}" --load-scripts=no --script="${BASE}/scripts/handheld" \

@@ -39,7 +39,7 @@ MAIN_SCREEN="${SDL_VIDEO_DISPLAY_PRIORITY%%,*}"
 
 # vo=wlshm: everything on screen is drawn by the scripts, in software, which
 # works on every ROCKNIX device (the RK3566's Vulkan output shows no picture)
-/usr/bin/mpv --fullscreen --idle=yes --force-window=yes --title="Music" --no-osc --vo=wlshm \
+/usr/bin/mpv --fullscreen --idle=yes --force-window=yes --title="Music" --no-osc --vo=wlshm --cursor-autohide=always \
   --audio-display=no --save-position-on-quit=no --resume-playback=no \
   --input-ipc-server="${SOCK}" ${EXTRA} \
   --script-opts=handheld-role=music,handheld-hub="${HUB}" --script-opts-append=handheld-launcher="$0"
