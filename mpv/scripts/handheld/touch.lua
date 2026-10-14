@@ -58,6 +58,18 @@ local function show_cover(path)
     cover_shown = path
 end
 
+-- The ✕ asks before it closes the player: a first tap turns it red and says
+-- so, a second one within a few seconds closes.
+local QUIT_CONFIRM = 3
+local quit_ask = nil
+local function close_button(c, cy, alpha)
+    local asking = quit_ask ~= nil and mp.get_time() - quit_ask < QUIT_CONFIRM
+    ui.circle(c, 966, cy, 30, asking and ui.RED or ui.RAISED, not asking and alpha or nil)
+    ui.text(c, 966, cy, "✕", 28, ui.WHITE, 5)
+    if asking then ui.text(c, 996, cy + 52, "Tap again to close", 22, ui.RED, 6, true) end
+    ui.hit(cv, 926, cy - 40, 80, 80, "quit")
+end
+
 local function pill_row(c, pills)
     local gap, py, ph = 16, 628, 76
     local pw = (BAR_W - gap * (#pills - 1)) / #pills
@@ -105,9 +117,7 @@ local function draw_music(st)
         ui.rect(c, 52, 64, 400, 400, 24, ui.PANEL)
         ui.text(c, 252, 264, "♪", 110, ui.DIM, 5)
     end
-    ui.circle(c, 966, 56, 30, ui.RAISED)
-    ui.text(c, 966, 56, "✕", 28, ui.WHITE, 5)
-    ui.hit(cv, 926, 16, 80, 80, "quit")
+    close_button(c, 56)
     -- right of the cover, one centred column: what is playing, the transport,
     -- then shuffle and repeat under the gaps between the buttons
     local mid = 746
@@ -268,9 +278,7 @@ local function draw_remote_music(st)
     level_buttons(c, 780)
     ui.icon_mic(c, 870, 48, 30, not has and ui.DIM or (st.lyrics_on and ui.ACCENT or ui.GREY))
     if has then ui.hit(cv, 820, 8, 100, 80, "toggle-lyrics") end
-    ui.circle(c, 966, 48, 30, ui.RAISED)
-    ui.text(c, 966, 48, "✕", 28, ui.WHITE, 5)
-    ui.hit(cv, 926, 8, 80, 80, "quit")
+    close_button(c, 48)
     -- the transport, with shuffle and repeat at its sides
     local cy = 158
     local rep = st["repeat"] or "Off"
@@ -351,9 +359,7 @@ local function draw_controls(st)
             ui.text(c, 44, 230, "or switch on Stay on.", 19, ui.GREY, 7)
         end
     end
-    ui.circle(c, 966, 56, 30, ui.RAISED, 0x20)
-    ui.text(c, 966, 56, "✕", 28, ui.WHITE, 5)
-    ui.hit(cv, 926, 16, 80, 80, "quit")
+    close_button(c, 56, 0x20)
 
     if remote and level_kind then
         draw_level(c, st, 214, 272)  -- in place of the transport while it is open
@@ -688,7 +694,16 @@ local function run(hit)
         backend.action("level-sync", st.brightness_sync and "off" or "on")
         arm_level()
     elseif name == "level-keep" or name == "level-bar" then arm_level()
-    elseif name == "quit" then backend.action("quit"); T.hide()
+    elseif name == "quit" then
+        if quit_ask and mp.get_time() - quit_ask < QUIT_CONFIRM then
+            quit_ask = nil
+            backend.action("quit")
+            T.hide()
+        else
+            quit_ask = mp.get_time()
+            mp.add_timeout(QUIT_CONFIRM + 0.05, function() if view ~= "hidden" then draw() end end)
+            draw()
+        end
     elseif name == "to-bottom" or name == "to-top" then backend.action(name)
     else backend.action(name, hit.data) end
     mp.add_timeout(0.08, draw)

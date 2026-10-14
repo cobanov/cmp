@@ -108,6 +108,7 @@ else
     if name == "intro" then touch.intro() else touch.show("controls") end
     if name == "level" then tap(n1 == 2 and 690 or 780, 48) end  -- level:1 volume, level:2 brightness
     if name == "vlevel" then tap(n1 == 2 and 600 or 690, 48) end  -- the same over a video
+    if name == "quit" then tap(966, 52) end  -- the ✕ once: it asks
     if name == "files" then  -- the video browser: files:0 at the playing file's folder, files:1 one up
         tap(176, 666)                       -- the Videos pill
         if n1 == 1 then tap(74, 52) end     -- ‹ up

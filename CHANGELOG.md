@@ -2,6 +2,12 @@
 
 All notable changes to CMP. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org).
 
+## [0.6.1] - 2026-10-15
+
+### Changed
+
+- **The touch screen's ✕ asks first:** a tap turns it red with "Tap again to close", and only a second tap within a few seconds closes the player, so a stray touch no longer ends the music or the video.
+
 ## [0.6.0] - 2026-10-15
 
 ### Added
@@ -118,6 +124,7 @@ The first release of CMP, the Console Music Player, for ROCKNIX.
 
 - ROCKNIX with its mpv 0.41 (no other dependencies). Tested on the Anbernic RG34XX SP (single screen, 720x480) and the Anbernic RG DS Plus (two screens, 1024x768).
 
+[0.6.1]: https://github.com/cobanov/cmp/releases/tag/v0.6.1
 [0.6.0]: https://github.com/cobanov/cmp/releases/tag/v0.6.0
 [0.5.0]: https://github.com/cobanov/cmp/releases/tag/v0.5.0
 [0.4.0]: https://github.com/cobanov/cmp/releases/tag/v0.4.0
