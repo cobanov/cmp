@@ -12,6 +12,10 @@ All notable changes to CMP. The format follows [Keep a Changelog](https://keepac
 
 - **Video (experimental):** the touch remote's top row has only the clock, the battery and the buttons; the episode gets its own lines below it, the show and the number small, the episode's name big, so the name is no longer cut short.
 
+### Fixed
+
+- **The touch screen stayed dark now and then when a video or the music opened:** something else can turn the second screen off just after the hub turned it on (a helper that powers it off while only the player's window is open, before the remote's window comes). The hub looks again a moment later and turns it back on.
+
 ## [0.4.0] - 2026-10-14
 
 ### Added

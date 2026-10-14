@@ -869,6 +869,10 @@ def run_player(main_sock=MAIN_SOCK):
 
     touch = TouchWatch() if second else None
     remote_started = 0.0
+    # when to ask sway again whether the second screen came on with the remote:
+    # something else (an ES reload, a helper that powers it off while only the
+    # player's window is open) can turn it off just after the hub turned it on
+    rechecks = []
 
     # Both screens should come up together: the remote starts at once, beside
     # the player rather than after it, and powers the second screen on while
@@ -981,7 +985,13 @@ def run_player(main_sock=MAIN_SOCK):
             if not pad.devices or (second and main.sock and proc is None):
                 waits.append(1.0)  # look for the pad again; restart the remote
             waits.append(3.0)  # (and for a pad device that came up late, see Pad.open)
+            if rechecks:
+                waits.append(max(0.0, rechecks[0] - time.monotonic()))
             ready, _, _ = select.select(fds, [], [], min(waits) if waits else None)
+            if rechecks and time.monotonic() >= rechecks[0]:
+                rechecks.pop(0)
+                if awake and remote.sock and not locked() and sway.powered(second) is False:
+                    screen.on()
 
             for f in ready:
                 if f in pad.devices:
@@ -1082,6 +1092,7 @@ def run_player(main_sock=MAIN_SOCK):
                         remote.send(["script-message", "handheld-wake", "intro"])
                         if state:
                             remote.send(["script-message", "handheld-state", state])
+                        rechecks = [time.monotonic() + 1.5, time.monotonic() + 4.0]
                     elif app == REMOTE_ID and change == "focus":
                         sway.run(f"focus output {main_out}")  # keep the main screen focused
             if pad.devices:
