@@ -1032,6 +1032,15 @@ def run_player(main_sock=MAIN_SOCK):
                             if req.get("lock") and guard:
                                 guard.lock()
                                 awake = False
+                            elif req.get("browse") and second and remote.sock and not locked():
+                                # the player's video browser lives on the second screen: show it
+                                # there and hand it the pad keys while it is open
+                                if not (awake and sway.powered(second) is not False):
+                                    awake = True
+                                    screen.on()
+                                    if state:
+                                        remote.send(["script-message", "handheld-state", state])
+                                remote.send(["script-message", "handheld-browse", str(req["browse"])])
                             elif req.get("wake") and second and remote.sock and not locked():
                                 # the pad picks something shown on the second screen (the queue)
                                 if awake:  # already on: it starts its turn-off timer again

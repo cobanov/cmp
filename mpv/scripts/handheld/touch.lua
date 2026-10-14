@@ -15,12 +15,13 @@ local S = require "settings"
 local L = require "touchlib"
 local lyrics = require "lyrics"
 local battery = require "battery"
+local F = require "files"
 
 local T = {}
 
 local overlay = mp.create_osd_overlay("ass-events")
 local backend, remote
-local view = "hidden"            -- hidden | controls | settings | guide | about | library | lyrics
+local view = "hidden"            -- hidden | controls | settings | guide | about | library | lyrics | files
 local tab = 1                    -- settings tab
 local cv = ui.canvas()
 local idle_timer, tick_timer
@@ -33,6 +34,8 @@ local level_drag = nil           -- { value } while a finger moves its slider
 local level_timer, level_sent = nil, 0
 local wake_tap = nil             -- the first tap of the double tap that wakes the dark remote
 local close_tap = nil            -- the first tap of the double tap that turns it off
+local files_pad = false          -- the video browser was opened with the pad: show its pick
+local files_drag = nil           -- { y, first, moved } while a finger moves the browser's list
 
 local HIDE_AFTER = 4              -- seconds, controls over the video
 local SLEEP_AFTER = 5             -- seconds, remote panel (the players' setting overrides it)
@@ -375,11 +378,16 @@ local function draw_controls(st)
 
     progress(c, st, BAR_Y)
 
-    pill_row(c, {
+    pill_row(c, remote and {
+        { nil, "Videos", "files" },
         { "Subtitles", st.sub, "sub-next" },
         { "Audio", st.audio, "audio-next" },
         { nil, "Settings", "settings" },
-        { nil, remote and "Move to bottom" or "Move to top", remote and "to-bottom" or "to-top" },
+    } or {
+        { "Subtitles", st.sub, "sub-next" },
+        { "Audio", st.audio, "audio-next" },
+        { nil, "Settings", "settings" },
+        { nil, "Move to top", "to-top" },
     })
 end
 
@@ -462,6 +470,7 @@ local function draw()
     if view == "controls" then draw_controls(st)
     elseif view == "lyrics" then draw_lyrics(st)
     elseif view == "library" then show_cover(nil); L.draw(cv, st)
+    elseif view == "files" then show_cover(nil); F.draw(cv, st, { pad = files_pad })
     else draw_settings(st) end
     ui.show(overlay, cv)
 end
@@ -479,7 +488,7 @@ end
 -- Visibility ----------------------------------------------------------------
 
 
-local function in_settings() return view == "settings" or view == "guide" or view == "about" or view == "library" end
+local function in_settings() return view == "settings" or view == "guide" or view == "about" or view == "library" or view == "files" end
 local function stays() return view == "lyrics" end  -- read while the song plays: no turning off
 
 -- A player setting the remote follows (sent with the state).
@@ -567,6 +576,8 @@ end
 
 function T.hide()
     intro = false
+    if view == "files" then F.close(); backend.action("browse-closed") end
+    files_drag = nil
     close_level()
     scrolling = false
     queue_drag, queue_first = nil, nil
@@ -575,6 +586,44 @@ function T.hide()
     drag = nil
     set_view("hidden")
     if backend.sleep then backend.sleep() end
+end
+
+-- The video browser ----------------------------------------------------------
+
+local function open_files(pad)
+    local st = backend.state()
+    F.open_at(st and st.path)
+    files_pad = pad
+    T.show("files")
+end
+
+local function close_files(tell)
+    F.close()
+    files_drag = nil
+    set_view("controls")
+    arm_idle()
+    if tell then backend.action("browse-closed") end  -- the player stops handing over the pad
+end
+
+local function files_result(r)
+    if r == "close" then close_files(true)
+    elseif type(r) == "table" then  -- a video: the player opens it
+        backend.action("open-file", r[2])
+        close_files(true)
+    elseif r then draw() end
+end
+
+-- The player's X and its pad keys while the browser is open (from the hub).
+function T.browse(key)
+    if key == "open" then
+        if view == "files" then files_pad = true; arm_idle(); draw() else open_files(true) end
+        return
+    end
+    if key == "close" then if view == "files" then close_files(false) end; return end
+    if view ~= "files" then open_files(true) end  -- (it had turned off meanwhile)
+    files_pad = true
+    arm_idle()
+    files_result(F.key(key))
 end
 
 -- Input -------------------------------------------------------------------
@@ -620,6 +669,10 @@ local function run(hit)
         backend.action("setting", hit.data, hit.data2)
         if hit.close then set_view("controls") end
     elseif name == "library" then L.open(backend.library(), backend.names, backend.track_name); set_view("library")
+    elseif name == "files" then open_files(false); return
+    elseif name == "files-close" then close_files(true); return
+    elseif name == "files-up" then F.up(); draw(); return
+    elseif name == "files-item" then files_result(F.activate(hit.data)); return
     elseif name == "lib-done" then set_view("controls")
     elseif name:sub(1, 4) == "lib-" then
         if L.tap(hit, backend.action) == "play" then set_view("controls") else draw() end
@@ -698,9 +751,31 @@ local function queue_release()
     end
 end
 
+local function files_move(y)
+    local d = files_drag.y - y
+    if math.abs(d) < 24 and not files_drag.moved then return end
+    files_drag.moved = true
+    local first = files_drag.first + math.floor(d / F.ROW + 0.5)
+    if first ~= F.first() then F.scroll_to(first); draw_soon() end
+end
+
+local function files_release()
+    local fd = files_drag
+    files_drag, down = nil, nil
+    arm_idle()
+    if not fd.moved then
+        local hit = ui.find_hit(cv, fd.x, fd.y)
+        if hit then run(hit) end
+    end
+end
+
 local function on_down(x, y)
     down = { x = x, y = y, t = mp.get_time() }
     if idle_timer then idle_timer:kill(); idle_timer = nil end  -- not while a finger is down
+    if view == "files" and y > 100 then
+        files_drag = { x = x, y = y, first = F.first(), moved = false }
+        return
+    end
     if in_queue(y) then
         queue_drag = { x = x, y = y, first = (queue_top(backend.state())), moved = false }
     elseif view == "library" and L.in_list(y) then
@@ -750,6 +825,10 @@ end
 
 local function on_up(x, y)
     arm_idle()
+    if files_drag then
+        if not finger_down() then files_release() end
+        return
+    end
     if queue_drag then
         if not finger_down() then queue_release() end
         return
@@ -831,6 +910,10 @@ function T.init(b, is_remote, always_on)
     mp.add_forced_key_binding("MBTN_LEFT_DBL", "handheld-touch-dbl", function() end)
     mp.observe_property("touch-pos", "native", function(_, t)
         local held = type(t) == "table" and #t > 0
+        if files_drag then
+            if held then files_move(select(2, canvas_pos())) else files_release() end
+            return
+        end
         if queue_drag then
             if held then queue_move(select(2, canvas_pos())) else queue_release() end
             return
@@ -845,7 +928,8 @@ function T.init(b, is_remote, always_on)
     end)
     mp.observe_property("mouse-pos", "native", function()
         if finger_down() then return end  -- touch-pos has it
-        if queue_drag then queue_move(select(2, canvas_pos()))
+        if files_drag then files_move(select(2, canvas_pos()))
+        elseif queue_drag then queue_move(select(2, canvas_pos()))
         elseif scrolling then
             if L.move(select(2, canvas_pos())) then draw_soon() end
         elseif drag or level_drag then on_move((canvas_pos())) end

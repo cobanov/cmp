@@ -7,6 +7,8 @@ local utils = require "mp.utils"
 local S = require "settings"
 local levels = require "levels"
 
+local files = require "files"
+
 local P = {}
 
 local SAVE_FILE = "/storage/.config/mpv/handheld-menu.json"
@@ -292,6 +294,7 @@ end
 function P.state()
     return {
         title = mp.get_property("media-title") or "",
+        path = mp.get_property("path"),
         pos = mp.get_property_number("time-pos", 0),
         dur = mp.get_property_number("duration", 0),
         paused = mp.get_property_native("pause") or false,
@@ -325,13 +328,33 @@ function P.action(name, a, b)
     elseif name == "to-top" then P.to_top()
     elseif name == "level" then levels.set(a, b)  -- the remote's volume or brightness slider
     elseif name == "level-sync" then levels.set_sync(a == "on")
+    elseif name == "open-file" and a then  -- picked in the video browser (files.lua)
+        mp.command("write-watch-later-config")
+        mp.commandv("loadfile", a, "replace")
     elseif name == "quit" then mp.command("quit")
     end
+end
+
+-- How far each video was watched, for the video browser: noted every few
+-- seconds and kept when the file ends (played to the end: finished).
+local watching = nil  -- { path, pos, dur }
+local function note_position()
+    local path, pos, dur = mp.get_property("path"), mp.get_property_number("time-pos"), mp.get_property_number("duration")
+    if path and pos and dur and dur > 0 then watching = { path = path, pos = pos, dur = dur } end
 end
 
 function P.init()
     P.load()
     mp.register_event("file-loaded", P.queue_rest)
+    mp.register_event("file-loaded", note_position)
+    mp.add_periodic_timer(5, note_position)
+    mp.register_event("seek", function() mp.add_timeout(0.2, note_position) end)
+    mp.register_event("end-file", function(e)
+        local w = watching
+        watching = nil
+        if not w then return end
+        files.save_progress(w.path, e.reason == "eof" and 1 or w.pos / w.dur)
+    end)
     mp.register_event("shutdown", function()
         -- EmulationStation still lists a deleted episode until it rescans
         if P.deleted_any then

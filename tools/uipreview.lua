@@ -38,9 +38,16 @@ package.preload["mp.utils"] = function()
         split_path = function(p) return p:match("^(.*/)") or "", p:match("([^/]*)$") end,
         join_path = function(a, b) return a:sub(-1) == "/" and a .. b or a .. "/" .. b end,
         file_info = function(p) local f = io.open(p, "rb"); if f then f:close(); return { is_file = true } end end,
-        readdir = function(p)
-            local t, h = {}, io.popen('ls "' .. p .. '" 2>/dev/null')
-            for l in h:lines() do t[#t + 1] = l end
+        readdir = function(p, filter)
+            -- (a folder ends in /; links to folders, as in /sys, count as folders)
+            local t, h = {}, io.popen('for f in "' .. p .. '"/*; do [ -e "$f" ] || continue; ' ..
+                                      'if [ -d "$f" ]; then echo "${f##*/}/"; else echo "${f##*/}"; fi; done')
+            for l in h:lines() do
+                local dir = l:sub(-1) == "/"
+                if filter == "dirs" and dir then t[#t + 1] = l:sub(1, -2)
+                elseif filter == "files" and not dir then t[#t + 1] = l
+                elseif filter ~= "dirs" and filter ~= "files" then t[#t + 1] = dir and l:sub(1, -2) or l end
+            end
             h:close()
             return t
         end,
@@ -101,6 +108,10 @@ else
     if name == "intro" then touch.intro() else touch.show("controls") end
     if name == "level" then tap(n1 == 2 and 690 or 780, 48) end  -- level:1 volume, level:2 brightness
     if name == "vlevel" then tap(n1 == 2 and 600 or 690, 48) end  -- the same over a video
+    if name == "files" then  -- the video browser: files:0 at the playing file's folder, files:1 one up
+        tap(176, 666)                       -- the Videos pill
+        if n1 == 1 then tap(74, 52) end     -- ‹ up
+    end
     if name == "library" or name == "albumpage" then
         tap(176, 666)                       -- the Library pill
         if name == "albumpage" then tap(500, 96 + (n1 - 0.5) * 120) end  -- album n1

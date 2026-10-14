@@ -68,8 +68,8 @@ end
 
 S.ABOUT = {
     name = "CMP",
-    version = "0.5.0",
-    tagline = "Console Music Player, for retro handhelds",
+    version = "0.6.0",
+    tagline = "Console Media Player, for retro handhelds",
     lines = {
         { "Made by", "Mert Cobanov" },
         { "Email", "mertcobanov@gmail.com" },
@@ -119,7 +119,7 @@ S.ABOUT = {
 S.GUIDE = {
     video = {
         { "A", "Play / pause" },
-        { "B", "Time and progress" },
+        { "B", "Videos: switch to another one" },
         { "X", "Switch subtitles" },
         { "Y", "Switch audio language" },
         { "← →", "Back / forward 10 s, hold to scrub" },

@@ -2,6 +2,18 @@
 
 All notable changes to CMP. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org).
 
+## [0.6.0] - 2026-10-15
+
+### Added
+
+- **A video browser on B:** the folders and videos of the Media Player folder, opened at the series playing, to switch to another video without going back to EmulationStation. The video playing is marked, finished ones are ticked and the ones left halfway show how far they got. On a dual-screen device it opens on the touch screen, where a finger scrolls and picks and the pad still works; on a one-screen device it opens over the video. The touch remote's "Videos" button opens it too.
+
+### Changed
+
+- **CMP is now the Console Media Player:** the same music player, and the video player beside it, no longer an experiment. The README shows both.
+- **B opens the video browser** in the video player; it used to show the time and the progress, which the touch remote and the progress bar on a seek show anyway.
+- On the video player's touch remote "Videos" takes the place of "Move to bottom", which is in the settings (and on L1 + R1).
+
 ## [0.5.0] - 2026-10-14
 
 ### Added
@@ -106,6 +118,7 @@ The first release of CMP, the Console Music Player, for ROCKNIX.
 
 - ROCKNIX with its mpv 0.41 (no other dependencies). Tested on the Anbernic RG34XX SP (single screen, 720x480) and the Anbernic RG DS Plus (two screens, 1024x768).
 
+[0.6.0]: https://github.com/cobanov/cmp/releases/tag/v0.6.0
 [0.5.0]: https://github.com/cobanov/cmp/releases/tag/v0.5.0
 [0.4.0]: https://github.com/cobanov/cmp/releases/tag/v0.4.0
 [0.3.0]: https://github.com/cobanov/cmp/releases/tag/v0.3.0

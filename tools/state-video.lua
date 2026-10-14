@@ -3,7 +3,7 @@ local function row(key, label, kind, value, on, extra)
   for k, v in pairs(extra or {}) do r[k] = v end
   return r
 end
-return { volume = 40, brightness_top = 65, brightness_bottom = 35, title = "Naruto - 060 - Byakugan vs. Shadow Clone Technique!", pos = 118, dur = 1418, paused = false,
+return { volume = 40, brightness_top = 65, brightness_bottom = 35, title = "Naruto - 060 - Byakugan vs. Shadow Clone Technique!", path = "/storage/roms/mplayer/Naruto/Naruto - 060 - Byakugan vs. Shadow Clone Technique!.mkv", pos = 118, dur = 1418, paused = false,
   sub = "English", audio = "Japanese", has_prev = false, has_next = true, keep_on = false,
   settings = {
     { title = "Subtitles", rows = {

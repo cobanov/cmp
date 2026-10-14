@@ -37,6 +37,8 @@ if role == "remote" then
         end
         touch.draw()
     end)
+    -- the player's X and the pad keys while its video browser shows here
+    mp.register_script_message("handheld-browse", function(key) touch.browse(key) end)
     -- the hub saw a finger on the (powered off) screen
     mp.register_script_message("handheld-wake", function(why)
         if why == "intro" then touch.intro()
@@ -108,7 +110,44 @@ end
 mp.add_periodic_timer(1, publish)  -- once a second: each redraw of the remote costs CPU the video needs
 mp.register_event("file-loaded", function() mp.add_timeout(0.05, publish) end)  -- the remote is waiting
 
+-- The video browser (B): on the touch screen of a dual-screen device, where
+-- the hub hands it the pad keys while it is open; over the video otherwise.
+local files = require "files"
+local ui = require "ui"
+local dual = (os.getenv("SDL_VIDEO_DISPLAY_PRIORITY") or ""):find(",") ~= nil
+local browsing_below = false
+local files_overlay = mp.create_osd_overlay("ass-events")
+local req_seq = 0
+local function request(t)  -- read by media-hub.py
+    req_seq = req_seq + 1
+    t.seq = req_seq
+    mp.set_property("user-data/handheld/req", utils.format_json(t))
+end
+local function draw_files()
+    if not files.is_open then files_overlay:remove(); files_overlay.data = nil; return end
+    local cv = ui.canvas()
+    files.draw(cv, P.state(), { pad = true, backdrop = 0x28 })
+    ui.show(files_overlay, cv)
+end
+local function open_files()
+    if dual then
+        browsing_below = true
+        request({ browse = "open" })
+    else
+        files.open_at(mp.get_property("path"))
+        draw_files()
+    end
+end
+local function files_key(key)
+    if browsing_below then request({ browse = key }); return end
+    local r = files.key(key)
+    if r == "close" then files.close()
+    elseif type(r) == "table" then files.close(); P.action("open-file", r[2]) end
+    draw_files()
+end
+
 mp.register_script_message("handheld-action", function(name, a, b)
+    if name == "browse-closed" then browsing_below = false; return end  -- the touch screen closed it
     P.action(name, a ~= "" and a or nil, b ~= "" and b or nil)
     mp.add_timeout(0.1, publish)  -- answer a tap at once, not on the next tick
 end)
@@ -156,7 +195,7 @@ end
 -- One job per control. Volume stays on the device's own volume keys.
 local playing = {
     a = function() mp.commandv("cycle", "pause"); osd(mp.get_property_native("pause") and "Paused" or "Playing") end,
-    b = function() mp.command("show-progress") end,
+    b = open_files,
     x = function() P.step_track("sub", 1); osd("Subtitles: " .. P.track_name(P.current_track("sub"))) end,
     y = function() P.step_track("audio", 1); osd("Audio: " .. P.track_name(P.current_track("audio"))) end,
     -- the d-pad: short steps, and the opening's length up and down
@@ -185,6 +224,16 @@ local STICK = { lstick_up = "up", lstick_down = "down", lstick_left = "left", ls
 
 mp.register_script_message("handheld", function(key, kind)
     if key == "start" or key == "select+start" then mp.command("quit"); return end
+    if browsing_below or files.is_open then
+        if key == "select" then  -- the settings instead
+            if browsing_below then request({ browse = "close" }); browsing_below = false end
+            files.close(); draw_files()
+            menu.toggle()
+            return
+        end
+        files_key(STICK[key] or key)
+        return
+    end
     if menu.key(STICK[key] or key) then return end
     if kind == "repeat" and NO_REPEAT[key] then return end
     local action = playing[key]
