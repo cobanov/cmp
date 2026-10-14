@@ -72,7 +72,7 @@ The install goes to `/storage/.config/cmp` and leaves the stock music player in 
 
 ## Want to tinker?
 
-Lua scripts for mpv 0.41 with LuaJIT (`mpv/scripts/handheld`) and a Python 3 standard-library hub (`hub/media-hub.py`) that reads the pad, runs the second-screen windows and talks to sway. Covers and Cover Flow are drawn in LuaJIT FFI buffers; text is measured and drawn with libass. `tools/preview.sh` renders screens offscreen on a device. A distribution can ship the files in one folder and link `es/Music.sh` from anywhere: it finds the rest next to itself. Releases follow [semantic versioning](https://semver.org); every change is listed in [CHANGELOG.md](CHANGELOG.md) and `tools/release.sh` cuts a release.
+Lua scripts for mpv 0.41 with LuaJIT (`mpv/scripts/handheld`) and a Python 3 standard-library hub (`hub/media-hub.py`) that reads the pad, runs the second-screen windows and talks to sway. Covers and Cover Flow are drawn in LuaJIT FFI buffers; text is measured and drawn with libass. `tools/preview.sh` renders screens offscreen on a device. A distribution can ship the files in one folder and link `es/Music.sh` (and `es/Video.sh`, the video player, which takes the file to play) from anywhere: they find the rest next to themselves. Releases follow [semantic versioning](https://semver.org); every change is listed in [CHANGELOG.md](CHANGELOG.md) and `tools/release.sh` cuts a release.
 
 This repository also holds an experimental video player for dual-screen devices (`./install.sh root@<handheld-ip>`): the same touch remote, chapters on L2 R2, seeking on the d-pad and the stick. It will get its own polish later.
 

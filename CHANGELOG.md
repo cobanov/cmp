@@ -2,7 +2,11 @@
 
 All notable changes to CMP. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org).
 
-## [Unreleased]
+## [0.5.0] - 2026-10-14
+
+### Added
+
+- **The video player for a distribution's package:** `es/Video.sh` starts it the way EmulationStation starts a media player core (`start_cmp_video.sh <file>` in ROCKNIX), with the files next to it, in place of ROCKNIX's own input service. The install script's video player in mpv's folder works as before.
 
 ### Changed
 
@@ -97,6 +101,7 @@ The first release of CMP, the Console Music Player, for ROCKNIX.
 
 - ROCKNIX with its mpv 0.41 (no other dependencies). Tested on the Anbernic RG34XX SP (single screen, 720x480) and the Anbernic RG DS Plus (two screens, 1024x768).
 
+[0.5.0]: https://github.com/cobanov/cmp/releases/tag/v0.5.0
 [0.4.0]: https://github.com/cobanov/cmp/releases/tag/v0.4.0
 [0.3.0]: https://github.com/cobanov/cmp/releases/tag/v0.3.0
 [0.2.0]: https://github.com/cobanov/cmp/releases/tag/v0.2.0
