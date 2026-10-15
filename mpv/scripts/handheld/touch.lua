@@ -35,6 +35,8 @@ local level_timer, level_sent = nil, 0
 local wake_tap = nil             -- the first tap of the double tap that wakes the dark remote
 local close_tap = nil            -- the first tap of the double tap that turns it off
 local files_pad = false          -- the video browser was opened with the pad: show its pick
+local pad_locked = false         -- the handheld's buttons locked from the remote (the hub drops them)
+local locked_flash = -10         -- when a locked button was pressed: say so for a moment
 local files_drag = nil           -- { y, first, moved } while a finger moves the browser's list
 
 local HIDE_AFTER = 4              -- seconds, controls over the video
@@ -254,6 +256,17 @@ local function clock_battery(c, x, y)
     return x - ui.width(clock, 26)
 end
 
+-- The lock for the handheld's buttons, so a hand holding it does not press
+-- them by accident; a tap here locks and unlocks them.
+local function lock_button(c, cx, cy)
+    local col = pad_locked and ui.ACCENT or ui.GREY
+    ui.icon_lock(c, cx, cy, 40, col, not pad_locked)
+    if pad_locked and mp.get_time() - locked_flash < 2 then
+        ui.text(c, cx, cy + 44, "Buttons locked", 20, ui.ACCENT, 8, true)
+    end
+    ui.hit(cv, cx - 42, cy - 40, 84, 80, "padlock")
+end
+
 -- The brightness and volume buttons of a remote's top row, ending at x.
 local function level_buttons(c, x)
     ui.icon_sun(c, x - 90, 48, 40, level_kind == "brightness" and ui.ACCENT or ui.GREY)
@@ -273,7 +286,7 @@ local function draw_remote_music(st)
     -- lyrics or the cover on the main screen (lit while the lyrics show,
     -- dim when the song has none), and quit
     local has = st.has_lyrics
-    clock_battery(c, 610, 48)
+    lock_button(c, clock_battery(c, 610, 48) - 48, 48)
     -- brightness and volume: each opens a slider over the queue
     level_buttons(c, 780)
     ui.icon_mic(c, 870, 48, 30, not has and ui.DIM or (st.lyrics_on and ui.ACCENT or ui.GREY))
@@ -338,6 +351,7 @@ local function draw_controls(st)
         local b, clock = battery.read(), os.date("%H:%M")
         local w = ui.width(clock, 26) + (b and 20 + ui.width(b.pct .. "%", 22) + 12 + 44 or 0)
         clock_battery(c, 44 + w, 52)
+        lock_button(c, 505, 52)
         -- "Show - 060 - Episode name" (the way the library names episodes): the show and the
         -- number small, the episode's name big; anything else is the title as it is
         local show, num, name = (st.title or ""):match("^(.-)%s+%-%s+(%d+)%s+%-%s+(.+)$")
@@ -619,6 +633,20 @@ local function files_result(r)
     elseif r then draw() end
 end
 
+-- The hub dropped a button while they are locked: show why.
+local LOCKED_SHOW = 2  -- seconds a dark screen lights up to show the lock after a stray press
+function T.locked()
+    pad_locked = true
+    locked_flash = mp.get_time()
+    if view == "hidden" then
+        T.show("controls")
+        arm_idle(LOCKED_SHOW)  -- only a glimpse: the press was most likely by accident
+    else
+        draw()
+    end
+    mp.add_timeout(LOCKED_SHOW + 0.05, function() if view ~= "hidden" then draw() end end)
+end
+
 -- The player's X and its pad keys while the browser is open (from the hub).
 function T.browse(key)
     if key == "open" then
@@ -675,6 +703,10 @@ local function run(hit)
         backend.action("setting", hit.data, hit.data2)
         if hit.close then set_view("controls") end
     elseif name == "library" then L.open(backend.library(), backend.names, backend.track_name); set_view("library")
+    elseif name == "padlock" then
+        pad_locked = not pad_locked
+        if backend.padlock then backend.padlock(pad_locked) end
+        draw()
     elseif name == "files" then open_files(false); return
     elseif name == "files-close" then close_files(true); return
     elseif name == "files-up" then F.up(); draw(); return

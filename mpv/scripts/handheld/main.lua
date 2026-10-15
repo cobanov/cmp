@@ -37,6 +37,8 @@ if role == "remote" then
         end
         touch.draw()
     end)
+    -- a button pressed while they are locked (the lock on this screen)
+    mp.register_script_message("handheld-locked", function() touch.locked() end)
     -- the player's X and the pad keys while its video browser shows here
     mp.register_script_message("handheld-browse", function(key) touch.browse(key) end)
     -- the hub saw a finger on the (powered off) screen
@@ -53,6 +55,7 @@ if role == "remote" then
         end,
         wake = function() request({ wake = true }) end,
         sleep = function() request({ sleep = true }) end,
+        padlock = function(on) request({ padlock = on }) end,
     }, true)
     return
 end

@@ -859,7 +859,8 @@ def run_player(main_sock=MAIN_SOCK):
     seen_main = False
 
     def start_remote():
-        nonlocal proc
+        nonlocal proc, pad_locked
+        pad_locked = False  # a new remote starts unlocked
         proc = subprocess.Popen(
             SECOND_SCREEN_MPV + [
                 "--idle=yes", "--force-window=yes", "--title=Touch remote", f"--wayland-app-id={REMOTE_ID}",
@@ -904,9 +905,27 @@ def run_player(main_sock=MAIN_SOCK):
             sway.run(f'[app_id="{REMOTE_ID}"] move container to output {second}, fullscreen enable')
         sway.run(f"focus output {main_out}")
 
+    pad_locked = False   # locked from the touch remote, so a hand holding the handheld does not press them
+    locked_said = 0.0
+
     def send_key(key, repeat):
+        nonlocal locked_said, awake
         if locked():
             return  # buttons are locked while the screen is off
+        if pad_locked:
+            # show why nothing happens (the lock on the touch screen), now and then
+            if not repeat and time.monotonic() - locked_said > 1.5:
+                locked_said = time.monotonic()
+                if second and remote.sock:
+                    # the remote lights up for a moment only (it times that itself)
+                    if not (awake and sway.powered(second) is not False):
+                        awake = True
+                        screen.on()
+                        if state:
+                            remote.send(["script-message", "handheld-state", state])
+                    remote.send(["script-message", "handheld-locked"])
+                main.send(["show-text", "Buttons locked: tap the lock on the touch screen", "1500"])
+            return
         main.send(["script-message", "handheld", key] + (["repeat"] if repeat else []))
         # in the music player a button wakes the second screen too, or keeps it on
         # (not Y: it turns the screens off). Over a video the buttons only drive
@@ -1085,6 +1104,8 @@ def run_player(main_sock=MAIN_SOCK):
                         elif req.get("sleep"):
                             awake = False
                             screen.sleep()
+                        elif "padlock" in req:
+                            pad_locked = bool(req["padlock"])
                         elif req.get("cmd"):
                             main.send(req["cmd"])
                 elif f is events:

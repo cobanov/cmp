@@ -253,6 +253,19 @@ function ui.icon_radio(c, cx, cy, s, color)
     ui.rect(c, x + w * 0.6, y + h * 0.48, w * 0.28, h * 0.12, 2, ui.PANEL)
 end
 
+-- A padlock of size s centred on cx, cy, closed or open: the "lock" and
+-- "lock_open_right" icons of Google's Material Symbols (Apache 2.0, rounded,
+-- filled), their outlines on a 48-unit square kept as ASS drawings (\\p3).
+local LOCK = {
+    closed = "m 44 176 b 41 176 38 175 36 172 b 33 170 32 167 32 164 l 32 77 b 32 74 33 71 36 69 b 38 66 41 65 44 65 l 58 65 l 58 46 b 58 35 62 27 69 19 b 77 12 86 8 96 8 b 107 8 116 12 123 19 b 130 27 134 35 134 46 l 134 65 l 148 65 b 151 65 154 66 156 69 b 159 71 160 74 160 77 l 160 164 b 160 167 159 170 156 172 b 154 175 151 176 148 176 l 44 176 l 44 176 m 96 136 b 100 136 104 135 107 132 b 110 129 111 125 111 121 b 111 117 110 113 107 110 b 104 107 100 105 96 105 b 92 105 88 107 85 110 b 82 113 81 117 81 121 b 81 125 82 129 85 132 b 88 135 92 136 96 136 l 96 136 m 70 65 l 122 65 l 122 46 b 122 39 119 33 114 28 b 109 23 103 20 96 20 b 89 20 83 23 78 28 b 73 33 70 39 70 46 l 70 65 l 70 65",
+    open = "m 96 136 b 100 136 104 135 107 132 b 110 129 111 125 111 121 b 111 117 110 113 107 110 b 104 107 100 105 96 105 b 92 105 88 107 85 110 b 82 113 81 117 81 121 b 81 125 82 129 85 132 b 88 135 92 136 96 136 l 96 136 m 44 176 b 41 176 38 175 36 172 b 33 170 32 167 32 164 l 32 77 b 32 74 33 71 36 69 b 38 66 41 65 44 65 l 110 65 l 110 46 b 110 35 114 27 121 19 b 129 12 137 8 148 8 b 158 8 166 11 173 18 b 180 24 184 32 186 41 b 186 42 185 44 184 45 b 183 46 182 46 180 46 b 178 46 177 46 176 45 b 175 44 174 43 174 41 b 172 35 169 30 165 26 b 160 22 154 20 148 20 b 141 20 135 23 130 28 b 125 33 122 39 122 46 l 122 65 l 148 65 b 151 65 154 66 156 69 b 159 71 160 74 160 77 l 160 164 b 160 167 159 170 156 172 b 154 175 151 176 148 176 l 44 176 l 44 176",
+}
+function ui.icon_lock(c, cx, cy, s, color, open)
+    local scale = s / 48 * 100
+    c[#c + 1] = string.format("{\\an7\\pos(%d,%d)\\fscx%.1f\\fscy%.1f\\bord0\\shad0\\1c&H%s&\\1a&H00&\\p3}%s{\\p0}",
+        math.floor(cx - s / 2), math.floor(cy - s / 2), scale, scale, color, open and LOCK.open or LOCK.closed)
+end
+
 -- A crescent moon of radius r: a circle with a circle of the background cut out.
 -- A ring clipped to its right side: a sound wave.
 function ui.arc_right(c, cx, cy, r, thick, color, from)
