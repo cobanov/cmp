@@ -2,6 +2,12 @@
 
 All notable changes to CMP. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org).
 
+## [0.6.2] - 2026-10-16
+
+### Added
+
+- **A lock for the handheld's buttons** on the touch remote: a tap on the lock icon makes the player ignore the pad, so a hand holding the handheld does not skip or pause by accident. A locked button press lights the dark touch screen for a moment and says "Buttons locked"; another tap on the lock unlocks them.
+
 ## [0.6.1] - 2026-10-15
 
 ### Changed
@@ -124,6 +130,7 @@ The first release of CMP, the Console Music Player, for ROCKNIX.
 
 - ROCKNIX with its mpv 0.41 (no other dependencies). Tested on the Anbernic RG34XX SP (single screen, 720x480) and the Anbernic RG DS Plus (two screens, 1024x768).
 
+[0.6.2]: https://github.com/cobanov/cmp/releases/tag/v0.6.2
 [0.6.1]: https://github.com/cobanov/cmp/releases/tag/v0.6.1
 [0.6.0]: https://github.com/cobanov/cmp/releases/tag/v0.6.0
 [0.5.0]: https://github.com/cobanov/cmp/releases/tag/v0.5.0
